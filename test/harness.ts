@@ -19,6 +19,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { createPercyExtension, type PercyOptions } from "../extensions/percy/index.ts";
+import { DEFAULT_SETTINGS } from "../extensions/percy/settings.ts";
 
 export const GREETING = "Well, hi there! What shall we work on today?";
 
@@ -80,9 +81,12 @@ export interface HarnessOptions {
 	 * reply, or undefined to fall through.
 	 */
 	respond?: (messages: Message[]) => { tool: string; args: Record<string, unknown> } | string | undefined;
+	/** Continue this session, as resuming it would. */
+	sessionManager?: SessionManager;
 }
 
-export async function startHarness(options: PercyOptions = {}, harness: HarnessOptions = {}): Promise<Harness> {
+/** Starts a session with pi-percy on its defaults, overridden by settings; pi's settings.json files are not read. */
+export async function startHarness(settings: PercyOptions["settings"] = {}, harness: HarnessOptions = {}): Promise<Harness> {
 	const contextWindow = harness.contextWindow ?? 1_000_000;
 	const dir = mkdtempSync(join(tmpdir(), "percy-test-"));
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux", contextWindow }] });
@@ -114,7 +118,7 @@ export async function startHarness(options: PercyOptions = {}, harness: HarnessO
 		noPromptTemplates: true,
 		noThemes: true,
 		noContextFiles: true,
-		extensionFactories: [(pi) => pi.registerProvider(faux.provider), honestUsage, echoTool, createPercyExtension(options)],
+		extensionFactories: [(pi) => pi.registerProvider(faux.provider), honestUsage, echoTool, createPercyExtension({ settings, loadSettings: () => ({ settings: DEFAULT_SETTINGS, problems: [] }) })],
 	});
 	await loader.reload();
 	const modelRuntime = await ModelRuntime.create({
@@ -127,7 +131,7 @@ export async function startHarness(options: PercyOptions = {}, harness: HarnessO
 		agentDir: dir,
 		modelRuntime,
 		resourceLoader: loader,
-		sessionManager: SessionManager.inMemory(dir),
+		sessionManager: harness.sessionManager ?? SessionManager.inMemory(dir),
 		settingsManager: SettingsManager.inMemory(harness.settings ?? {}),
 		noTools: "builtin",
 	});

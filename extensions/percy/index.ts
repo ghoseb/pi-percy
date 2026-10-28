@@ -6,33 +6,54 @@
 // request. recall shows the originals. While compact_in_place is active, the
 // turn_end handler also nudges the agent with the context size and the index
 // (see nudge.ts), and a conversation left idle gets one compaction turn (see
-// idle.ts).
+// idle.ts). /compact-in-place asks the agent to compact; /compact-debug is a
+// testing aid. Settings come from the "percy" key of pi's settings.json.
 import { StringEnum } from "@earendil-works/pi-ai";
 import {
+	CONFIG_DIR_NAME,
 	calculateContextTokens,
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
 	type ExtensionAPI,
 	type ExtensionContext,
 	formatSize,
+	getAgentDir,
 	type SessionBoundaryDraft,
 	type SessionEntry,
 	type TurnEndEvent,
 	truncateHead,
 } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "typebox";
-import { type BranchView, branchView, compactionDrafts } from "./branch.ts";
-import { DEFAULT_IDLE, type IdleSettings, idleNudgeText, worthIdleCompaction } from "./idle.ts";
+import { type BranchView, branchView, compactionDrafts, RECORD_TYPE, type StoredCompaction } from "./branch.ts";
+import { DEBUG_USAGE, parseDebugCommand } from "./debug.ts";
+import { idleNudgeText, worthIdleCompaction } from "./idle.ts";
 import { compactIndex } from "./index-render.ts";
-import { DEFAULT_NUDGE, type NudgeSettings, nudgeDue, sizeLine } from "./nudge.ts";
+import { type NudgeSettings, nudgeDue, sizeLine } from "./nudge.ts";
 import { renderOriginals, resolveIds } from "./recall.ts";
-import { type AgentMessage, COMPACT_TOOL, DEFAULT_LIMITS, type Limits, NUDGE_TYPE, RECALL_TOOL } from "./types.ts";
+import { renderIndex, renderNudge, renderRecord } from "./render.ts";
+import { itemTokens } from "./rows.ts";
+import { DEFAULT_SETTINGS, loadSettings, type PercySettings } from "./settings.ts";
+import { type AgentMessage, COMPACT_TOOL, NUDGE_TYPE, RECALL_TOOL } from "./types.ts";
 import { compactRequest } from "./validate.ts";
+import { applyCompaction, editsBetween } from "./view.ts";
+
+/** Records the nudge settings a branch was last nudged with (see nudgeAfter). */
+const NUDGE_SETTINGS_TYPE = "percy-nudge-settings";
+/** An index shown by /compact-debug: rendered, not sent to the model. */
+const INDEX_TYPE = "percy-index";
+
+/** What /compact-in-place asks the agent, as Shelley's Compact in Place button does. */
+export const COMPACT_REQUEST = "Compact your context in place.";
 
 export interface PercyOptions {
-	limits?: Partial<Limits>;
-	nudge?: Partial<NudgeSettings>;
-	idle?: Partial<IdleSettings>;
+	/** Overrides of the loaded settings, for tests. */
+	settings?: {
+		limits?: Partial<PercySettings["limits"]>;
+		nudge?: Partial<PercySettings["nudge"]>;
+		idle?: Partial<PercySettings["idle"]>;
+	};
+	/** Loads the settings at session start. Defaults to pi's settings.json files. */
+	loadSettings?: (ctx: ExtensionContext) => { settings: PercySettings; problems: string[] };
 }
 
 const COMPACT_DESCRIPTION = `Compact this conversation's context in place.
@@ -108,15 +129,37 @@ function previousTokens(branch: readonly SessionEntry[], id: string): number | u
 	return undefined;
 }
 
-export function createPercyExtension(options: PercyOptions = {}) {
-	const limits: Limits = { ...DEFAULT_LIMITS, ...options.limits };
-	const nudge: NudgeSettings = { ...DEFAULT_NUDGE, ...options.nudge };
-	const idle: IdleSettings = { ...DEFAULT_IDLE, ...options.idle };
+/** The nudge settings last recorded on branch, if any. */
+function recordedNudge(branch: readonly SessionEntry[]): NudgeSettings | undefined {
+	for (let i = branch.length - 1; i >= 0; i--) {
+		const e = branch[i]!;
+		if (e.type === "custom" && e.customType === NUDGE_SETTINGS_TYPE) return e.data as NudgeSettings;
+	}
+	return undefined;
+}
 
+function fileSettings(ctx: ExtensionContext) {
+	return loadSettings(getAgentDir(), ctx.cwd, ctx.isProjectTrusted(), CONFIG_DIR_NAME);
+}
+
+function overlay(base: PercySettings, over: PercyOptions["settings"] = {}): PercySettings {
+	return {
+		limits: { ...base.limits, ...over.limits },
+		nudge: { ...base.nudge, ...over.nudge },
+		idle: { ...base.idle, ...over.idle },
+	};
+}
+
+const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
+export function createPercyExtension(options: PercyOptions = {}) {
 	return function percy(pi: ExtensionAPI) {
-		// Drafts of compactions made this turn, by tool call id, until turn_end
-		// appends them.
+		let settings = overlay(DEFAULT_SETTINGS, options.settings);
+
+		// Drafts of compactions made this turn, by tool call id, and records
+		// /compact-debug made since the last turn, until turn_end appends them.
 		const pending = new Map<string, SessionBoundaryDraft[]>();
+		let debugDrafts: SessionBoundaryDraft[] = [];
 
 		// Idle compaction state. The timer is armed when a run settles. A run
 		// started by the idle nudge does not re-arm it on settling; new input
@@ -131,11 +174,15 @@ export function createPercyExtension(options: PercyOptions = {}) {
 			idleTimer = undefined;
 		};
 
-		pi.on("session_start", () => {
+		pi.on("session_start", (_event, ctx) => {
 			pending.clear();
+			debugDrafts = [];
 			cancelIdle();
 			idleRun = false;
 			warmingStopped = false;
+			const loaded = (options.loadSettings ?? fileSettings)(ctx);
+			settings = overlay(loaded.settings, options.settings);
+			for (const problem of loaded.problems) ctx.ui.notify(`pi-percy: ${problem}`, "warning");
 		});
 		pi.on("session_shutdown", cancelIdle);
 		pi.on("input", () => {
@@ -150,8 +197,8 @@ export function createPercyExtension(options: PercyOptions = {}) {
 				idleRun = false;
 				return;
 			}
-			if (event.aborted || idle.minutes <= 0) return;
-			idleTimer = setTimeout(() => startIdleCompaction(ctx), idle.minutes * 60_000);
+			if (event.aborted || settings.idle.minutes <= 0) return;
+			idleTimer = setTimeout(() => startIdleCompaction(ctx), settings.idle.minutes * 60_000);
 			// An idle timer must not keep pi from exiting.
 			idleTimer.unref?.();
 		});
@@ -163,15 +210,15 @@ export function createPercyExtension(options: PercyOptions = {}) {
 			try {
 				if (!ctx.isIdle() || ctx.hasPendingMessages() || !pi.getActiveTools().includes(COMPACT_TOOL)) return;
 				const view = currentView(ctx);
-				if (!worthIdleCompaction(view.items, limits, idle.minTokens)) return;
+				if (!worthIdleCompaction(view.items, settings.limits, settings.idle.minTokens)) return;
 				idleRun = true;
 				warmingStopped = true;
 				pi.sendMessage(
 					{
 						customType: NUDGE_TYPE,
 						content: [
-							{ type: "text", text: idleNudgeText(idle.minutes) },
-							{ type: "text", text: compactIndex(view.items, limits) },
+							{ type: "text", text: idleNudgeText(settings.idle.minutes) },
+							{ type: "text", text: compactIndex(view.items, settings.limits) },
 						],
 						display: true,
 						details: { idle: true },
@@ -182,7 +229,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
 				// A timer callback has no caller to report to, and an exception
 				// here would take pi down.
 				idleRun = false;
-				const message = `pi-percy: idle compaction failed: ${err instanceof Error ? err.message : String(err)}`;
+				const message = `pi-percy: idle compaction failed: ${errorText(err)}`;
 				try {
 					ctx.ui.notify(message, "error");
 				} catch {
@@ -201,12 +248,12 @@ export function createPercyExtension(options: PercyOptions = {}) {
 			executionMode: "sequential",
 			async execute(toolCallId, params, _signal, _onUpdate, ctx) {
 				const view = currentView(ctx);
-				if (params.action === "index") return text(compactIndex(view.items, limits));
+				if (params.action === "index") return text(compactIndex(view.items, settings.limits));
 				if (pending.size > 0) {
 					throw new Error("A compaction from this turn is waiting to be applied; compact again after the next response.");
 				}
-				const result = compactRequest(view.items, limits, { trim: params.trim, collapse: params.collapse });
-				pending.set(toolCallId, compactionDrafts(view, result.compaction, result.edits));
+				const result = compactRequest(view.items, settings.limits, { trim: params.trim, collapse: params.collapse });
+				pending.set(toolCallId, compactionDrafts(view, result.compaction, result.edits, result));
 				return text(result.text);
 			},
 		});
@@ -231,38 +278,90 @@ export function createPercyExtension(options: PercyOptions = {}) {
 			},
 		});
 
+		pi.registerCommand("compact-in-place", {
+			description: "Ask the agent to compact its context in place (optional: what to keep)",
+			handler: async (args, ctx) => {
+				if (!pi.getActiveTools().includes(COMPACT_TOOL)) pi.setActiveTools([...pi.getActiveTools(), COMPACT_TOOL]);
+				const instructions = args.trim();
+				const request = instructions ? `${COMPACT_REQUEST}\n\n${instructions}` : COMPACT_REQUEST;
+				// Queued behind a running turn, as Shelley queues it.
+				pi.sendUserMessage(request, ctx.isIdle() ? undefined : { deliverAs: "followUp" });
+			},
+		});
+
+		pi.registerCommand("compact-debug", {
+			description: `Testing aid for in-place compaction (${DEBUG_USAGE.replace("usage: ", "")})`,
+			handler: async (args, ctx) => {
+				try {
+					const view = currentView(ctx);
+					const command = parseDebugCommand(args, view.items);
+					if (command.kind === "index") {
+						pi.appendEntry(INDEX_TYPE, { index: compactIndex(view.items, settings.limits) });
+						return;
+					}
+					// Commands cannot append context edits; turn_end does.
+					const c = command.compaction;
+					const after = applyCompaction(view.items, c, 0);
+					const sizes = { tokensBefore: itemTokens(view.items), tokensAfter: itemTokens(after) };
+					debugDrafts.push(...compactionDrafts(view, c, editsBetween(view.items, after), sizes));
+					ctx.ui.notify("pi-percy: recorded; it applies after the next model response", "info");
+				} catch (err) {
+					ctx.ui.notify(`pi-percy: ${errorText(err)}`, "error");
+				}
+			},
+		});
+
+		pi.registerEntryRenderer<StoredCompaction>(RECORD_TYPE, (entry, { expanded }, theme) =>
+			renderRecord(entry, expanded, theme),
+		);
+		pi.registerEntryRenderer<{ index: string }>(INDEX_TYPE, (entry, { expanded }, theme) =>
+			renderIndex(entry, expanded, theme),
+		);
+		pi.registerMessageRenderer<{ idle?: boolean } | undefined>(NUDGE_TYPE, (message, { expanded, outputPad }, theme) =>
+			renderNudge(message, expanded, outputPad, theme),
+		);
+
 		/**
-		 * The nudge due after this turn's response, if any: the size line and
-		 * the index. It reaches the model with the next request, in this turn
-		 * or the next.
+		 * The entries to append after this turn's response for nudging: the
+		 * nudge settings when they changed, and the nudge (the size line and
+		 * the index) when one is due. A nudge reaches the model with the next
+		 * request, in this turn or the next. When the settings changed since
+		 * the branch was last nudged (or it never was), the previous response
+		 * does not count, so lowering the threshold nudges right away.
 		 */
-		function nudgeAfter(event: TurnEndEvent, ctx: ExtensionContext): SessionBoundaryDraft | undefined {
-			if (!pi.getActiveTools().includes(COMPACT_TOOL)) return undefined;
+		function nudgeAfter(event: TurnEndEvent, ctx: ExtensionContext): SessionBoundaryDraft[] {
+			if (!pi.getActiveTools().includes(COMPACT_TOOL)) return [];
 			const tokens = contextTokens(event.message);
-			if (tokens === undefined) return undefined;
-			const previous = previousTokens(ctx.sessionManager.getBranch(), event.messageEntryId);
-			if (!nudgeDue(tokens, previous, nudge)) return undefined;
-			return {
-				type: "custom_message",
-				customType: NUDGE_TYPE,
-				content: [
-					{ type: "text", text: sizeLine(tokens) },
-					{ type: "text", text: compactIndex(currentView(ctx).items, limits) },
-				],
-				display: true,
-			};
+			if (tokens === undefined) return [];
+			const branch = ctx.sessionManager.getBranch();
+			const { at, step } = settings.nudge;
+			const recorded = recordedNudge(branch);
+			const changed = recorded?.at !== at || recorded?.step !== step;
+			const drafts: SessionBoundaryDraft[] = [];
+			if (changed) drafts.push({ type: "custom", customType: NUDGE_SETTINGS_TYPE, data: { at, step } });
+			const previous = changed ? undefined : previousTokens(branch, event.messageEntryId);
+			if (nudgeDue(tokens, previous, settings.nudge)) {
+				drafts.push({
+					type: "custom_message",
+					customType: NUDGE_TYPE,
+					content: [
+						{ type: "text", text: sizeLine(tokens) },
+						{ type: "text", text: compactIndex(currentView(ctx).items, settings.limits) },
+					],
+					display: true,
+				});
+			}
+			return drafts;
 		}
 
-		// Appends this turn's compaction, or else a nudge if one is due, before
+		// Appends this turn's compactions, or else the nudge entries, before
 		// the next model request. Right after a compaction the response's size
 		// is from before it; the next response reports the new one.
 		pi.on("turn_end", (event, ctx) => {
-			const drafts = event.toolResults.flatMap((r) => pending.get(r.toolCallId) ?? []);
+			const drafts = [...debugDrafts, ...event.toolResults.flatMap((r) => pending.get(r.toolCallId) ?? [])];
 			pending.clear();
-			if (drafts.length === 0) {
-				const n = nudgeAfter(event, ctx);
-				if (n) drafts.push(n);
-			}
+			debugDrafts = [];
+			if (drafts.length === 0) drafts.push(...nudgeAfter(event, ctx));
 			if (drafts.length === 0) return;
 			return { entries: [...event.entries, ...drafts] };
 		});

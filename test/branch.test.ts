@@ -34,7 +34,7 @@ function commit(sm: SessionManager, drafts: SessionBoundaryDraft[]) {
 function compact(sm: SessionManager, input: Parameters<typeof compactRequest>[2]) {
 	const v = view(sm);
 	const r = compactRequest(v.items, limits, input);
-	commit(sm, compactionDrafts(v, r.compaction, r.edits));
+	commit(sm, compactionDrafts(v, r.compaction, r.edits, r));
 }
 
 const base = () => [
@@ -69,7 +69,7 @@ test("a committed compaction shows as notes and trimmed outputs", () => {
 	// note's carrier along with the rest of the range.
 	const v2 = view(sm);
 	const enclosing = { ...emptyCompaction(), squishes: [{ from: 2, to: 5, summary: "built it" }] };
-	commit(sm, compactionDrafts(v2, enclosing, editsBetween(v2.items, applyCompaction(v2.items, enclosing, 0))));
+	commit(sm, compactionDrafts(v2, enclosing, editsBetween(v2.items, applyCompaction(v2.items, enclosing, 0)), { tokensBefore: 0, tokensAfter: 0 }));
 	const again = view(sm);
 	assert.equal(spans(again.items), "1-1 2-5 6-6");
 	assert.deepEqual(again.items[1]!.note, { id: "s12.0", summary: "built it" });

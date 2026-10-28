@@ -8,12 +8,17 @@ import type { AgentMessage, Compaction, Edit, Item } from "./types.ts";
 /** customType of the custom entry that records a compaction. */
 export const RECORD_TYPE = "percy-compaction";
 
-/** A compaction as stored in a custom entry: by entry id, not number. */
+/**
+ * A compaction as stored in a custom entry: by entry id. Message numbers
+ * (seq) and sizes are kept for display; numbers are stable branch positions.
+ */
 export interface StoredCompaction {
-	squishes: { from: string; to: string; summary: string }[];
-	trims: { entry: string; toolCallId: string }[];
+	squishes: { from: string; to: string; fromSeq: number; toSeq: number; summary: string }[];
+	trims: { entry: string; seq: number; toolCallId: string }[];
 	hiddenEntries: string[];
 	hiddenToolCallIds: string[];
+	tokensBefore: number;
+	tokensAfter: number;
 }
 
 /** The model's view of a branch, with the numbering that names its messages. */
@@ -82,17 +87,29 @@ function onlyText(m: AgentMessage): string | undefined {
  * The session entries that realize a compaction of view: its record, then its
  * context edits. They are appended at the next turn boundary.
  */
-export function compactionDrafts(view: BranchView, compaction: Compaction, edits: readonly Edit[]): SessionBoundaryDraft[] {
+export function compactionDrafts(
+	view: BranchView,
+	compaction: Compaction,
+	edits: readonly Edit[],
+	sizes: { tokensBefore: number; tokensAfter: number },
+): SessionBoundaryDraft[] {
 	const id = (n: number): string => {
 		const e = view.entryAt(n);
 		if (!e) throw new Error(`no entry for message ${n}`);
 		return e.id;
 	};
 	const stored: StoredCompaction = {
-		squishes: compaction.squishes.map((s) => ({ from: id(s.from), to: id(s.to), summary: s.summary })),
-		trims: compaction.trims.map((t) => ({ entry: id(t.seq), toolCallId: t.toolCallId })),
+		squishes: compaction.squishes.map((s) => ({
+			from: id(s.from),
+			to: id(s.to),
+			fromSeq: s.from,
+			toSeq: s.to,
+			summary: s.summary,
+		})),
+		trims: compaction.trims.map((t) => ({ entry: id(t.seq), seq: t.seq, toolCallId: t.toolCallId })),
 		hiddenEntries: compaction.hiddenSeqs.map(id),
 		hiddenToolCallIds: compaction.hiddenToolCallIds,
+		...sizes,
 	};
 	return [
 		{ type: "custom", customType: RECORD_TYPE, data: stored },
