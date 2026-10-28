@@ -57,6 +57,20 @@ const echoTool: ExtensionFactory = (pi) => {
 	});
 };
 
+/**
+ * pi-ai's faux usage counts the uncached part of a request twice (as input
+ * and as cacheWrite). Make totalTokens the request size plus the output, so
+ * context sizes grow and shrink with the request.
+ */
+const honestUsage: ExtensionFactory = (pi) => {
+	pi.on("message_end", (event) => {
+		const m = event.message;
+		if (m.role !== "assistant") return;
+		const u = m.usage;
+		return { message: { ...m, usage: { ...u, totalTokens: u.input + u.cacheRead + u.output } } };
+	});
+};
+
 export async function startHarness(options: PercyOptions = {}, contextWindow = 1_000_000): Promise<Harness> {
 	const dir = mkdtempSync(join(tmpdir(), "percy-test-"));
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux", contextWindow }] });
@@ -85,7 +99,7 @@ export async function startHarness(options: PercyOptions = {}, contextWindow = 1
 		noPromptTemplates: true,
 		noThemes: true,
 		noContextFiles: true,
-		extensionFactories: [(pi) => pi.registerProvider(faux.provider), echoTool, createPercyExtension(options)],
+		extensionFactories: [(pi) => pi.registerProvider(faux.provider), honestUsage, echoTool, createPercyExtension(options)],
 	});
 	await loader.reload();
 	const modelRuntime = await ModelRuntime.create({

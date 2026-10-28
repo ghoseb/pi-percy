@@ -3,26 +3,33 @@
 // The agent compacts its own context with compact_in_place: "index" lists the
 // older part of the view, "compact" validates a request and queues its record
 // and context edits, which the turn_end handler appends before the next model
-// request. recall shows the originals.
+// request. recall shows the originals. While compact_in_place is active, the
+// turn_end handler also nudges the agent with the context size and the index
+// (see nudge.ts).
 import { StringEnum } from "@earendil-works/pi-ai";
 import {
+	calculateContextTokens,
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
 	type ExtensionAPI,
 	type ExtensionContext,
 	formatSize,
 	type SessionBoundaryDraft,
+	type SessionEntry,
+	type TurnEndEvent,
 	truncateHead,
 } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "typebox";
 import { type BranchView, branchView, compactionDrafts } from "./branch.ts";
 import { compactIndex } from "./index-render.ts";
+import { DEFAULT_NUDGE, type NudgeSettings, nudgeDue, sizeLine } from "./nudge.ts";
 import { renderOriginals, resolveIds } from "./recall.ts";
-import { COMPACT_TOOL, DEFAULT_LIMITS, type Limits, RECALL_TOOL } from "./types.ts";
+import { type AgentMessage, COMPACT_TOOL, DEFAULT_LIMITS, type Limits, NUDGE_TYPE, RECALL_TOOL } from "./types.ts";
 import { compactRequest } from "./validate.ts";
 
 export interface PercyOptions {
 	limits?: Partial<Limits>;
+	nudge?: Partial<NudgeSettings>;
 }
 
 const COMPACT_DESCRIPTION = `Compact this conversation's context in place.
@@ -80,8 +87,27 @@ function stringIds(args: unknown): unknown {
 
 const text = (t: string) => ({ content: [{ type: "text" as const, text: t }], details: undefined });
 
+/** The context size a response reports, or undefined if it reports none. */
+function contextTokens(m: AgentMessage): number | undefined {
+	if (m.role !== "assistant") return undefined;
+	const n = calculateContextTokens(m.usage);
+	return n > 0 ? n : undefined;
+}
+
+/** The context size of the newest response on branch before entry id. */
+function previousTokens(branch: readonly SessionEntry[], id: string): number | undefined {
+	const end = branch.findIndex((e) => e.id === id);
+	for (let i = (end < 0 ? branch.length : end) - 1; i >= 0; i--) {
+		const e = branch[i]!;
+		const n = e.type === "message" ? contextTokens(e.message) : undefined;
+		if (n !== undefined) return n;
+	}
+	return undefined;
+}
+
 export function createPercyExtension(options: PercyOptions = {}) {
 	const limits: Limits = { ...DEFAULT_LIMITS, ...options.limits };
+	const nudge: NudgeSettings = { ...DEFAULT_NUDGE, ...options.nudge };
 
 	return function percy(pi: ExtensionAPI) {
 		// Drafts of compactions made this turn, by tool call id, until turn_end
@@ -129,10 +155,38 @@ export function createPercyExtension(options: PercyOptions = {}) {
 			},
 		});
 
-		// Appends this turn's compactions before the next model request.
-		pi.on("turn_end", (event) => {
+		/**
+		 * The nudge due after this turn's response, if any: the size line and
+		 * the index. It reaches the model with the next request, in this turn
+		 * or the next.
+		 */
+		function nudgeAfter(event: TurnEndEvent, ctx: ExtensionContext): SessionBoundaryDraft | undefined {
+			if (!pi.getActiveTools().includes(COMPACT_TOOL)) return undefined;
+			const tokens = contextTokens(event.message);
+			if (tokens === undefined) return undefined;
+			const previous = previousTokens(ctx.sessionManager.getBranch(), event.messageEntryId);
+			if (!nudgeDue(tokens, previous, nudge)) return undefined;
+			return {
+				type: "custom_message",
+				customType: NUDGE_TYPE,
+				content: [
+					{ type: "text", text: sizeLine(tokens) },
+					{ type: "text", text: compactIndex(currentView(ctx).items, limits) },
+				],
+				display: true,
+			};
+		}
+
+		// Appends this turn's compaction, or else a nudge if one is due, before
+		// the next model request. Right after a compaction the response's size
+		// is from before it; the next response reports the new one.
+		pi.on("turn_end", (event, ctx) => {
 			const drafts = event.toolResults.flatMap((r) => pending.get(r.toolCallId) ?? []);
 			pending.clear();
+			if (drafts.length === 0) {
+				const n = nudgeAfter(event, ctx);
+				if (n) drafts.push(n);
+			}
 			if (drafts.length === 0) return;
 			return { entries: [...event.entries, ...drafts] };
 		});
