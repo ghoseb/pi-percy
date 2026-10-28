@@ -49,10 +49,10 @@ const echoTool: ExtensionFactory = (pi) => {
 	pi.registerTool({
 		name: "echo",
 		label: "Echo",
-		description: "Return the text",
-		parameters: Type.Object({ text: Type.String() }),
+		description: "Return the text, repeated times times",
+		parameters: Type.Object({ text: Type.String(), times: Type.Optional(Type.Number()) }),
 		async execute(_id, params) {
-			return { content: [{ type: "text", text: params.text }], details: undefined };
+			return { content: [{ type: "text", text: params.text.repeat(params.times ?? 1) }], details: undefined };
 		},
 	});
 };
@@ -71,13 +71,28 @@ const honestUsage: ExtensionFactory = (pi) => {
 	});
 };
 
-export async function startHarness(options: PercyOptions = {}, contextWindow = 1_000_000): Promise<Harness> {
+export interface HarnessOptions {
+	contextWindow?: number;
+	/** pi settings, in memory. */
+	settings?: Parameters<typeof SettingsManager.inMemory>[0];
+	/**
+	 * Answers a request before the default script: a tool call, a text
+	 * reply, or undefined to fall through.
+	 */
+	respond?: (messages: Message[]) => { tool: string; args: Record<string, unknown> } | string | undefined;
+}
+
+export async function startHarness(options: PercyOptions = {}, harness: HarnessOptions = {}): Promise<Harness> {
+	const contextWindow = harness.contextWindow ?? 1_000_000;
 	const dir = mkdtempSync(join(tmpdir(), "percy-test-"));
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux", contextWindow }] });
 	const requests: Message[][] = [];
 	let calls = 0;
 	const respond = (ctx: { messages: Message[] }) => {
 		requests.push(structuredClone(ctx.messages));
+		const custom = harness.respond?.(ctx.messages);
+		if (typeof custom === "string") return fauxAssistantMessage(fauxText(custom));
+		if (custom) return fauxAssistantMessage(fauxToolCall(custom.tool, custom.args as never, { id: `call${++calls}` }));
 		const last = ctx.messages[ctx.messages.length - 1];
 		const call = last?.role === "user" ? /^call (\w+) (.*)$/s.exec(textOf(last)) : null;
 		if (call) return fauxAssistantMessage(fauxToolCall(call[1]!, JSON.parse(call[2]!), { id: `call${++calls}` }));
@@ -113,12 +128,12 @@ export async function startHarness(options: PercyOptions = {}, contextWindow = 1
 		modelRuntime,
 		resourceLoader: loader,
 		sessionManager: SessionManager.inMemory(dir),
-		settingsManager: SettingsManager.inMemory({}),
+		settingsManager: SettingsManager.inMemory(harness.settings ?? {}),
 		noTools: "builtin",
 	});
 	await session.setModel(faux.getModel());
 
-	const harness: Harness = {
+	const h: Harness = {
 		session,
 		requests,
 		send: (t) => session.prompt(t),
@@ -139,7 +154,7 @@ export async function startHarness(options: PercyOptions = {}, contextWindow = 1
 		},
 		dispose: () => session.dispose(),
 	};
-	return harness;
+	return h;
 }
 
 /** The texts of a request's messages, one string per message ("role: text"). */

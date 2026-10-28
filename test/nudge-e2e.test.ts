@@ -65,6 +65,7 @@ test("no nudge right after a compaction; dropping below a level re-arms it", asy
 		const before = nudges(h).length;
 		assert.equal(before, 3, "one nudge per growing response");
 
+		// The call's message number (1-based) is the result's 0-based index.
 		const callSeq = h.session.sessionManager.getBranch().findIndex((e) => e.type === "message" && e.message.role === "toolResult");
 		await h.call("compact_in_place", { action: "compact", trim: [String(callSeq)] });
 		assert.equal(h.lastToolResult().isError, false, h.lastToolResult().text);
