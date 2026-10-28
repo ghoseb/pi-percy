@@ -5,7 +5,8 @@
 // and context edits, which the turn_end handler appends before the next model
 // request. recall shows the originals. While compact_in_place is active, the
 // turn_end handler also nudges the agent with the context size and the index
-// (see nudge.ts).
+// (see nudge.ts), and a conversation left idle gets one compaction turn (see
+// idle.ts).
 import { StringEnum } from "@earendil-works/pi-ai";
 import {
 	calculateContextTokens,
@@ -21,6 +22,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "typebox";
 import { type BranchView, branchView, compactionDrafts } from "./branch.ts";
+import { DEFAULT_IDLE, type IdleSettings, idleNudgeText, worthIdleCompaction } from "./idle.ts";
 import { compactIndex } from "./index-render.ts";
 import { DEFAULT_NUDGE, type NudgeSettings, nudgeDue, sizeLine } from "./nudge.ts";
 import { renderOriginals, resolveIds } from "./recall.ts";
@@ -30,6 +32,7 @@ import { compactRequest } from "./validate.ts";
 export interface PercyOptions {
 	limits?: Partial<Limits>;
 	nudge?: Partial<NudgeSettings>;
+	idle?: Partial<IdleSettings>;
 }
 
 const COMPACT_DESCRIPTION = `Compact this conversation's context in place.
@@ -108,12 +111,85 @@ function previousTokens(branch: readonly SessionEntry[], id: string): number | u
 export function createPercyExtension(options: PercyOptions = {}) {
 	const limits: Limits = { ...DEFAULT_LIMITS, ...options.limits };
 	const nudge: NudgeSettings = { ...DEFAULT_NUDGE, ...options.nudge };
+	const idle: IdleSettings = { ...DEFAULT_IDLE, ...options.idle };
 
 	return function percy(pi: ExtensionAPI) {
 		// Drafts of compactions made this turn, by tool call id, until turn_end
 		// appends them.
 		const pending = new Map<string, SessionBoundaryDraft[]>();
-		pi.on("session_start", () => pending.clear());
+
+		// Idle compaction state. The timer is armed when a run settles. A run
+		// started by the idle nudge does not re-arm it on settling; new input
+		// cancels it and makes the run an ordinary one. After an idle
+		// compaction, pi's idle cache warming stops until new input: the
+		// conversation is idle, and the compacted context is a new cache entry.
+		let idleTimer: ReturnType<typeof setTimeout> | undefined;
+		let idleRun = false;
+		let warmingStopped = false;
+		const cancelIdle = () => {
+			clearTimeout(idleTimer);
+			idleTimer = undefined;
+		};
+
+		pi.on("session_start", () => {
+			pending.clear();
+			cancelIdle();
+			idleRun = false;
+			warmingStopped = false;
+		});
+		pi.on("session_shutdown", cancelIdle);
+		pi.on("input", () => {
+			cancelIdle();
+			idleRun = false;
+			warmingStopped = false;
+		});
+		pi.on("agent_start", cancelIdle);
+		pi.on("agent_settled", (event, ctx) => {
+			cancelIdle();
+			if (idleRun) {
+				idleRun = false;
+				return;
+			}
+			if (event.aborted || idle.minutes <= 0) return;
+			idleTimer = setTimeout(() => startIdleCompaction(ctx), idle.minutes * 60_000);
+			// An idle timer must not keep pi from exiting.
+			idleTimer.unref?.();
+		});
+		pi.on("cache_warming_decision", () => (warmingStopped ? { action: "stop" } : undefined));
+
+		/** Starts the idle compaction turn, if the conversation is still idle and worth it. */
+		function startIdleCompaction(ctx: ExtensionContext) {
+			idleTimer = undefined;
+			try {
+				if (!ctx.isIdle() || ctx.hasPendingMessages() || !pi.getActiveTools().includes(COMPACT_TOOL)) return;
+				const view = currentView(ctx);
+				if (!worthIdleCompaction(view.items, limits, idle.minTokens)) return;
+				idleRun = true;
+				warmingStopped = true;
+				pi.sendMessage(
+					{
+						customType: NUDGE_TYPE,
+						content: [
+							{ type: "text", text: idleNudgeText(idle.minutes) },
+							{ type: "text", text: compactIndex(view.items, limits) },
+						],
+						display: true,
+						details: { idle: true },
+					},
+					{ triggerTurn: true },
+				);
+			} catch (err) {
+				// A timer callback has no caller to report to, and an exception
+				// here would take pi down.
+				idleRun = false;
+				const message = `pi-percy: idle compaction failed: ${err instanceof Error ? err.message : String(err)}`;
+				try {
+					ctx.ui.notify(message, "error");
+				} catch {
+					console.error(message);
+				}
+			}
+		}
 
 		pi.registerTool({
 			name: COMPACT_TOOL,
