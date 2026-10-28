@@ -75,13 +75,13 @@ test("a committed compaction shows as notes and trimmed outputs", () => {
 	assert.deepEqual(again.items[1]!.note, { id: "s12.0", summary: "built it" });
 
 	// recall resolves note ids to the range they replaced, and shows originals.
-	const spansOf = resolveIds(again, ["s12.0"], sm.getBranch().length);
+	const spansOf = resolveIds(again, ["s12.0"]);
 	assert.deepEqual(spansOf, [[2, 5]]);
 	const recalled = renderOriginals(again, spansOf);
 	assert.ok(recalled.includes(`## Message 2 (assistant)\nPlan: `), recalled);
 	assert.ok(recalled.includes(`## Message 3 (assistant)\n[tool call bash#a] {"command":"make"}`), recalled);
 	assert.ok(recalled.includes(`## Message 4 (bash output for #a)\n${x(800)}`), recalled);
-	assert.throws(() => resolveIds(again, ["0", "9-8", "99"], sm.getBranch().length), /0: messages are numbered[\s\S]*9-8: the range ends before[\s\S]*99: messages/);
+	assert.throws(() => resolveIds(again, ["0", "9-8", "99"]), /0: messages are numbered[\s\S]*9-8: the range ends before[\s\S]*99: messages/);
 });
 
 test("edits and notes are branch-relative", () => {
@@ -117,4 +117,25 @@ test("system messages are left out of the view", () => {
 	sm.appendMessage({ role: "system", content: "You are pi.", timestamp: 1 } as Appendable);
 	sm.appendMessage(user(0, "hi").message as Appendable);
 	assert.equal(spans(view(sm).items), "2-2");
+});
+
+test("message numbers and notes survive a fork of a branch with labels", () => {
+	const sm = session(base());
+	// A label in the middle of the branch: fork moves labels to the end.
+	sm.appendLabelChange(sm.getBranch()[1]!.id, "plan");
+	sm.appendMessage(assistant(0, `More: ${x(400)}`).message as Appendable);
+	sm.appendMessage(user(0, "go on").message as Appendable);
+	compact(sm, { trim: ["3"], collapse: [{ from: "7", to: "7", note: "more" }] });
+	const before = view(sm);
+	const notes = (v: typeof before) => v.items.filter((it) => it.note).map((it) => `${it.note!.id}:${it.from}-${it.to}`);
+	assert.deepEqual(notes(before), ["s9.0:7-7"]);
+
+	sm.createBranchedSession(sm.getLeafId()!);
+	assert.ok(sm.getBranch().findIndex((e) => e.type === "label") > 8, "fork did not move the label");
+	const after = view(sm);
+	assert.equal(spans(after.items), spans(before.items));
+	assert.deepEqual(notes(after), notes(before));
+	assert.equal(textOf(after.items[3]!.message), trimmedText(4));
+	// recall finds the same originals by the same numbers.
+	assert.equal(renderOriginals(after, resolveIds(after, ["2-4"])), renderOriginals(before, resolveIds(before, ["2-4"])));
 });

@@ -1,8 +1,7 @@
-// pi-percy's settings: the "percy" key of pi's settings.json files. Project
-// settings (<cwd>/.pi/settings.json, honored only for trusted projects)
-// override agent-directory settings (~/.pi/agent/settings.json).
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+// pi-percy's settings: the "percy" key of pi's settings.json files, as pi's
+// SettingsManager merges them (a trusted project's over the agent
+// directory's, key by key).
+import type { SettingsManager } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_IDLE, type IdleSettings } from "./idle.ts";
 import { DEFAULT_NUDGE, type NudgeSettings } from "./nudge.ts";
 import { DEFAULT_LIMITS, type Limits } from "./types.ts";
@@ -52,39 +51,16 @@ export function applySettings(base: PercySettings, value: unknown, source: strin
 	return { settings, problems };
 }
 
-/** The "percy" value of a settings file, or undefined if it has none. */
-function readPercy(path: string): { value: unknown } | { problem: string } {
-	let text: string;
-	try {
-		text = readFileSync(path, "utf8");
-	} catch (err) {
-		if ((err as NodeJS.ErrnoException).code === "ENOENT") return { value: undefined };
-		return { problem: `${path}: ${(err as Error).message}` };
-	}
-	try {
-		return { value: (JSON.parse(text.replace(/^\uFEFF/, "")) as Record<string, unknown>)?.percy };
-	} catch (err) {
-		return { problem: `${path}: ${(err as Error).message}` };
-	}
-}
-
 /**
- * Loads settings from the agent directory's settings.json and, for a trusted
- * project, the project's, over the defaults.
+ * Reads the settings from pi's merged settings over the defaults. Problems
+ * include the files pi could not load.
  */
-export function loadSettings(agentDir: string, cwd: string, projectTrusted: boolean, configDirName: string) {
-	let settings = DEFAULT_SETTINGS;
-	const problems: string[] = [];
-	const paths = [join(agentDir, "settings.json"), ...(projectTrusted ? [join(cwd, configDirName, "settings.json")] : [])];
-	for (const path of paths) {
-		const read = readPercy(path);
-		if ("problem" in read) {
-			problems.push(read.problem);
-			continue;
-		}
-		const applied = applySettings(settings, read.value, path);
-		settings = applied.settings;
-		problems.push(...applied.problems);
-	}
-	return { settings, problems };
+export function loadSettings(manager: Pick<SettingsManager, "getSettings" | "drainErrors">): {
+	settings: PercySettings;
+	problems: string[];
+} {
+	const value = (manager.getSettings() as Record<string, unknown>).percy;
+	const applied = applySettings(DEFAULT_SETTINGS, value, "settings.json");
+	const unread = manager.drainErrors().map((e) => `${e.path ?? `${e.scope} settings`}: ${e.error.message}`);
+	return { settings: applied.settings, problems: [...unread, ...applied.problems] };
 }

@@ -8,7 +8,7 @@ import type { BranchView } from "./branch.ts";
  * ("12-20"), or note ids ("s30.1", for the range the note replaced). Returns
  * the inclusive spans in request order. Throws with every bad id at once.
  */
-export function resolveIds(view: BranchView, ids: readonly string[], branchLength: number): [number, number][] {
+export function resolveIds(view: BranchView, ids: readonly string[]): [number, number][] {
 	if (ids.length === 0) throw new Error("give ids: message numbers, ranges like 12-20, or note ids like s30.1");
 	const spans: [number, number][] = [];
 	const problems: string[] = [];
@@ -25,7 +25,7 @@ export function resolveIds(view: BranchView, ids: readonly string[], branchLengt
 		} else if (range) {
 			const from = Number(range[1]);
 			const to = range[2] === undefined ? from : Number(range[2]);
-			if (from < 1 || to > branchLength) problems.push(`${id}: messages are numbered 1-${branchLength}`);
+			if (from < 1 || to > view.count) problems.push(`${id}: messages are numbered 1-${view.count}`);
 			else if (to < from) problems.push(`${id}: the range ends before it starts`);
 			else spans.push([from, to]);
 		} else {

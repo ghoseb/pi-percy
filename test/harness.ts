@@ -12,6 +12,7 @@ import {
 	type AgentSession,
 	createAgentSession,
 	DefaultResourceLoader,
+	type ExtensionUIContext,
 	type ExtensionFactory,
 	ModelRuntime,
 	SessionManager,
@@ -19,7 +20,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { createPercyExtension, type PercyOptions } from "../extensions/percy/index.ts";
-import { DEFAULT_SETTINGS } from "../extensions/percy/settings.ts";
+
 
 export const GREETING = "Well, hi there! What shall we work on today?";
 
@@ -27,6 +28,10 @@ export interface Harness {
 	session: AgentSession;
 	/** Every request the model received, in order. */
 	requests: Message[][];
+	/** Notifications extensions showed. */
+	notifications: { message: string; type?: string }[];
+	/** Errors extensions raised (handler failures, invalid boundary entries). */
+	errors: string[];
 	/** Sends a prompt and waits for the run to settle. */
 	send(text: string): Promise<void>;
 	/** Sends "call <tool> <args>" and waits. */
@@ -54,6 +59,18 @@ const echoTool: ExtensionFactory = (pi) => {
 		parameters: Type.Object({ text: Type.String(), times: Type.Optional(Type.Number()) }),
 		async execute(_id, params) {
 			return { content: [{ type: "text", text: params.text.repeat(params.times ?? 1) }], details: undefined };
+		},
+	});
+	// Aborts the run, as Escape does.
+	pi.registerTool({
+		name: "stop",
+		label: "Stop",
+		description: "Abort the run",
+		parameters: Type.Object({}),
+		executionMode: "sequential",
+		async execute(_id, _params, _signal, _onUpdate, ctx) {
+			ctx.abort();
+			return { content: [{ type: "text", text: "stopped" }], details: undefined };
 		},
 	});
 };
@@ -118,7 +135,12 @@ export async function startHarness(settings: PercyOptions["settings"] = {}, harn
 		noPromptTemplates: true,
 		noThemes: true,
 		noContextFiles: true,
-		extensionFactories: [(pi) => pi.registerProvider(faux.provider), honestUsage, echoTool, createPercyExtension({ settings, loadSettings: () => ({ settings: DEFAULT_SETTINGS, problems: [] }) })],
+		extensionFactories: [
+			(pi) => pi.registerProvider(faux.provider),
+			honestUsage,
+			echoTool,
+			createPercyExtension({ settings, piSettings: () => SettingsManager.inMemory(harness.settings ?? {}) }),
+		],
 	});
 	await loader.reload();
 	const modelRuntime = await ModelRuntime.create({
@@ -135,11 +157,19 @@ export async function startHarness(settings: PercyOptions["settings"] = {}, harn
 		settingsManager: SettingsManager.inMemory(harness.settings ?? {}),
 		noTools: "builtin",
 	});
+	// Bind a UI that records notifications, and collect extension errors.
+	const notifications: { message: string; type?: string }[] = [];
+	const errors: string[] = [];
+	// pi copies the UI's own properties, so it must be a plain object.
+	const ui = { notify: (message: string, type?: string) => void notifications.push({ message, type }) } as ExtensionUIContext;
+	await session.bindExtensions({ uiContext: ui, onError: (e) => errors.push(`${e.event}: ${e.error}`) });
 	await session.setModel(faux.getModel());
 
 	const h: Harness = {
 		session,
 		requests,
+		notifications,
+		errors,
 		send: (t) => session.prompt(t),
 		call: (tool, args) => session.prompt(`call ${tool} ${JSON.stringify(args)}`),
 		calls: (list) => session.prompt(`calls ${JSON.stringify(list)}`),
@@ -156,7 +186,11 @@ export async function startHarness(settings: PercyOptions["settings"] = {}, harn
 			if (!r) throw new Error("no tool result yet");
 			return { text: textOf(r), isError: r.isError };
 		},
-		dispose: () => session.dispose(),
+		dispose() {
+			session.dispose();
+			// Every test checks that no extension handler failed.
+			if (errors.length > 0) throw new Error(`extension errors: ${errors.join("; ")}`);
+		},
 	};
 	return h;
 }

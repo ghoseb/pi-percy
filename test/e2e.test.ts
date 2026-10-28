@@ -144,3 +144,27 @@ test("only one compaction per turn applies", async () => {
 		p.dispose();
 	}
 });
+
+test("a compaction made just before an abort is applied", async () => {
+	const a = await startHarness({ limits: { keepRecentTokens: 1 } });
+	try {
+		await a.send("hello");
+		await a.call("echo", { text: "OUT" });
+		const greetingSeq = seqWhere(a, isMessage("assistant", "Well, hi there!"));
+		const callSeq = seqWhere(a, isCall("OUT"));
+		// The stop tool aborts the run right after the compaction in its batch.
+		await a.calls([
+			["compact_in_place", { action: "compact", collapse: [{ from: greetingSeq, to: greetingSeq, note: "GREETED" }] }],
+			["stop", {}],
+		]);
+		assert.equal(records(a), 1);
+		await a.send("next");
+		assert.ok(dump(a.requests[a.requests.length - 1]!).join("\n").includes(noteText(greetingSeq, greetingSeq, "GREETED")));
+		// Nothing is left waiting: the next compaction goes through.
+		await a.call("compact_in_place", { action: "compact", trim: [callSeq] });
+		assert.equal(a.lastToolResult().isError, false, a.lastToolResult().text);
+		assert.equal(a.notifications.filter((n) => n.message.includes("not applied")).length, 0);
+	} finally {
+		a.dispose();
+	}
+});

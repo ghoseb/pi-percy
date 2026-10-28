@@ -24,10 +24,17 @@ export interface StoredCompaction {
 /** The model's view of a branch, with the numbering that names its messages. */
 export interface BranchView {
 	items: Item[];
-	/** Message number of each entry on the branch: its 1-based position. */
+	/**
+	 * Message number of each entry on the branch: its 1-based position, not
+	 * counting label entries. pi's fork and clone drop labels from the path
+	 * they copy (re-adding them at its end) and keep every other entry and its
+	 * id, so the numbers survive them.
+	 */
 	seqOf: ReadonlyMap<string, number>;
 	/** Entry on the branch by message number. */
 	entryAt: (seq: number) => SessionEntry | undefined;
+	/** How many numbered entries the branch has. */
+	count: number;
 	/** The squishes of the compaction recorded as entry seq. */
 	recordAt: (seq: number) => StoredCompaction | undefined;
 }
@@ -39,7 +46,8 @@ export interface BranchView {
  */
 export function branchView(branch: readonly SessionEntry[], projection: SessionProjection): BranchView {
 	const seqOf = new Map<string, number>();
-	branch.forEach((e, i) => seqOf.set(e.id, i + 1));
+	const numbered = branch.filter((e) => e.type !== "label");
+	numbered.forEach((e, i) => seqOf.set(e.id, i + 1));
 	const seq = (id: string): number => {
 		const n = seqOf.get(id);
 		if (n === undefined) throw new Error(`entry ${id} is not on the branch`);
@@ -49,7 +57,7 @@ export function branchView(branch: readonly SessionEntry[], projection: SessionP
 	// The latest note recorded for each carrier.
 	const notes = new Map<string, { from: number; to: number; id: string; summary: string }>();
 	const records = new Map<number, StoredCompaction>();
-	branch.forEach((e, i) => {
+	numbered.forEach((e, i) => {
 		if (e.type !== "custom" || e.customType !== RECORD_TYPE) return;
 		const record = e.data as StoredCompaction;
 		records.set(i + 1, record);
@@ -72,7 +80,7 @@ export function branchView(branch: readonly SessionEntry[], projection: SessionP
 			}
 		}
 	}
-	return { items, seqOf, entryAt: (n) => branch[n - 1], recordAt: (n) => records.get(n) };
+	return { items, seqOf, count: numbered.length, entryAt: (n) => numbered[n - 1], recordAt: (n) => records.get(n) };
 }
 
 /** The text of a message whose content is a single text block, else undefined. */

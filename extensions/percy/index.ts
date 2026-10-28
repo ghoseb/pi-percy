@@ -10,7 +10,6 @@
 // testing aid. Settings come from the "percy" key of pi's settings.json.
 import { StringEnum } from "@earendil-works/pi-ai";
 import {
-	CONFIG_DIR_NAME,
 	calculateContextTokens,
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
@@ -18,6 +17,7 @@ import {
 	type ExtensionContext,
 	formatSize,
 	getAgentDir,
+	SettingsManager,
 	type SessionBoundaryDraft,
 	type SessionEntry,
 	type TurnEndEvent,
@@ -52,8 +52,11 @@ export interface PercyOptions {
 		nudge?: Partial<PercySettings["nudge"]>;
 		idle?: Partial<PercySettings["idle"]>;
 	};
-	/** Loads the settings at session start. Defaults to pi's settings.json files. */
-	loadSettings?: (ctx: ExtensionContext) => { settings: PercySettings; problems: string[] };
+	/**
+	 * pi's settings, read at session start: pi-percy's own (the "percy" key)
+	 * and pi's compaction settings. Defaults to pi's settings.json files.
+	 */
+	piSettings?: (ctx: ExtensionContext) => PiSettings;
 }
 
 const COMPACT_DESCRIPTION = `Compact this conversation's context in place.
@@ -138,8 +141,34 @@ function recordedNudge(branch: readonly SessionEntry[]): NudgeSettings | undefin
 	return undefined;
 }
 
-function fileSettings(ctx: ExtensionContext) {
-	return loadSettings(getAgentDir(), ctx.cwd, ctx.isProjectTrusted(), CONFIG_DIR_NAME);
+/** What pi-percy reads from pi's SettingsManager. */
+export type PiSettings = Pick<
+	SettingsManager,
+	"getSettings" | "drainErrors" | "getCompactionEnabled" | "getCompactionReserveTokens"
+>;
+
+function fileSettings(ctx: ExtensionContext): PiSettings {
+	return SettingsManager.create(ctx.cwd, getAgentDir(), { projectTrusted: ctx.isProjectTrusted() });
+}
+
+/**
+ * Why the nudges come too late for model, if they do: pi's own compaction
+ * starts at contextWindow - reserveTokens, and the agent should get at least
+ * one nudge step of room before that.
+ */
+export function lateNudgeWarning(
+	model: { provider: string; id: string; contextWindow: number },
+	pi: PiSettings,
+	nudge: NudgeSettings,
+): string | undefined {
+	if (!pi.getCompactionEnabled() || !(model.contextWindow > 0)) return undefined;
+	const piCompactsAt = model.contextWindow - pi.getCompactionReserveTokens(model);
+	if (nudge.at + nudge.step <= piCompactsAt) return undefined;
+	return (
+		`pi-percy: pi compacts ${model.provider}/${model.id} at ${piCompactsAt} tokens ` +
+		`(a ${model.contextWindow} token window), less than one nudge step (${nudge.step}) after the first nudge at ` +
+		`${nudge.at}. Lower percy.nudgeTokens to let the agent compact first.`
+	);
 }
 
 function overlay(base: PercySettings, over: PercyOptions["settings"] = {}): PercySettings {
@@ -155,6 +184,16 @@ const errorText = (err: unknown) => (err instanceof Error ? err.message : String
 export function createPercyExtension(options: PercyOptions = {}) {
 	return function percy(pi: ExtensionAPI) {
 		let settings = overlay(DEFAULT_SETTINGS, options.settings);
+		let piSettings: PiSettings | undefined;
+		// The model last warned about (see lateNudgeWarning), to warn once per switch.
+		let warnedModel: string | undefined;
+		const checkModel = (ctx: ExtensionContext, model = ctx.model) => {
+			if (!model || !piSettings) return;
+			const key = `${model.provider}/${model.id}`;
+			const warning = lateNudgeWarning(model, piSettings, settings.nudge);
+			if (warning && warnedModel !== key) ctx.ui.notify(warning, "warning");
+			warnedModel = warning ? key : undefined;
+		};
 
 		// Drafts of compactions made this turn, by tool call id, and records
 		// /compact-debug made since the last turn, until turn_end appends them.
@@ -180,10 +219,14 @@ export function createPercyExtension(options: PercyOptions = {}) {
 			cancelIdle();
 			idleRun = false;
 			warmingStopped = false;
-			const loaded = (options.loadSettings ?? fileSettings)(ctx);
+			piSettings = (options.piSettings ?? fileSettings)(ctx);
+			const loaded = loadSettings(piSettings);
 			settings = overlay(loaded.settings, options.settings);
 			for (const problem of loaded.problems) ctx.ui.notify(`pi-percy: ${problem}`, "warning");
+			warnedModel = undefined;
+			checkModel(ctx);
 		});
+		pi.on("model_select", (event, ctx) => checkModel(ctx, event.model));
 		pi.on("session_shutdown", cancelIdle);
 		pi.on("input", () => {
 			cancelIdle();
@@ -191,6 +234,14 @@ export function createPercyExtension(options: PercyOptions = {}) {
 			warmingStopped = false;
 		});
 		pi.on("agent_start", cancelIdle);
+		// turn_end applies a compaction right after its tool batch, also when the
+		// run is aborted. Should a run end without that boundary, its drafts would
+		// otherwise block every later compaction.
+		pi.on("agent_end", (_event, ctx) => {
+			if (pending.size === 0) return;
+			pending.clear();
+			ctx.ui.notify("pi-percy: a compaction was not applied: the run ended before its turn boundary", "warning");
+		});
 		pi.on("agent_settled", (event, ctx) => {
 			cancelIdle();
 			if (idleRun) {
@@ -267,7 +318,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
 			prepareArguments: (args) => stringIds(args) as Static<typeof recallParameters>,
 			async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 				const view = currentView(ctx);
-				const spans = resolveIds(view, params.ids, ctx.sessionManager.getBranch().length);
+				const spans = resolveIds(view, params.ids);
 				const full = renderOriginals(view, spans);
 				const t = truncateHead(full, { maxLines: DEFAULT_MAX_LINES, maxBytes: DEFAULT_MAX_BYTES });
 				if (!t.truncated) return text(full);

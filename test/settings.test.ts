@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { SettingsManager } from "@earendil-works/pi-coding-agent";
 import { applySettings, DEFAULT_SETTINGS, loadSettings } from "../extensions/percy/settings.ts";
 
 test("applySettings maps keys and reports what it cannot use", () => {
@@ -36,29 +37,28 @@ test("applySettings maps keys and reports what it cannot use", () => {
 	assert.deepEqual(applySettings(DEFAULT_SETTINGS, [1], "s.json").problems, ['s.json: "percy" must be an object']);
 });
 
-test("loadSettings layers the project's settings over the agent directory's", () => {
+test("loadSettings reads pi's merged settings: a trusted project's over the agent directory's", () => {
 	const root = mkdtempSync(join(tmpdir(), "percy-settings-"));
 	const agentDir = join(root, "agent");
 	const cwd = join(root, "project");
 	mkdirSync(agentDir);
 	mkdirSync(join(cwd, ".pi"), { recursive: true });
-	// A BOM, as Windows editors write, is fine.
-	writeFileSync(join(agentDir, "settings.json"), `\uFEFF${JSON.stringify({ theme: "dark", percy: { nudgeTokens: 150_000, idleMinutes: 3 } })}`);
+	writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ theme: "dark", percy: { nudgeTokens: 150_000, idleMinutes: 3 } }));
 	writeFileSync(join(cwd, ".pi", "settings.json"), JSON.stringify({ percy: { idleMinutes: 0 } }));
+	const load = (projectTrusted: boolean) => loadSettings(SettingsManager.create(cwd, agentDir, { projectTrusted }));
 
-	const trusted = loadSettings(agentDir, cwd, true, ".pi");
+	const trusted = load(true);
 	assert.deepEqual(trusted.problems, []);
 	assert.equal(trusted.settings.nudge.at, 150_000);
 	assert.equal(trusted.settings.idle.minutes, 0);
-
 	// An untrusted project's settings are not read.
-	assert.equal(loadSettings(agentDir, cwd, false, ".pi").settings.idle.minutes, 3);
+	assert.equal(load(false).settings.idle.minutes, 3);
 
-	// Missing files are fine; broken ones are reported and skipped.
-	assert.deepEqual(loadSettings(join(root, "none"), join(root, "none"), true, ".pi"), { settings: DEFAULT_SETTINGS, problems: [] });
+	// No settings: the defaults. A broken file is reported.
+	assert.deepEqual(loadSettings(SettingsManager.inMemory({})), { settings: DEFAULT_SETTINGS, problems: [] });
 	writeFileSync(join(cwd, ".pi", "settings.json"), "{ broken");
-	const broken = loadSettings(agentDir, cwd, true, ".pi");
+	const broken = load(true);
 	assert.equal(broken.settings.idle.minutes, 3);
 	assert.equal(broken.problems.length, 1);
-	assert.ok(broken.problems[0]!.startsWith(join(cwd, ".pi", "settings.json")), String(broken.problems[0]));
+	assert.ok(broken.problems[0]!.includes(join(cwd, ".pi", "settings.json")), String(broken.problems[0]));
 });
