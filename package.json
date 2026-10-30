@@ -1,6 +1,6 @@
 {
   "name": "pi-percy",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Shelley-style in-place context compaction for pi",
   "keywords": [
