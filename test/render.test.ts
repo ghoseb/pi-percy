@@ -36,14 +36,39 @@ const record: StoredCompaction = {
 
 test("a compaction record, like pi's compaction message", () => {
 	const collapsed = plain(renderRecord(entry("percy-compaction", record), false, t).render(200));
-	assert.match(
-		collapsed,
-		new RegExp(`^\\[compaction\\]\\nCompacted in place from ~${n(120_000)} to ~${n(80_000)} tokens: 1 range collapsed, 1 output trimmed \\(.* to expand\\)$`),
-	);
+	assert.match(collapsed, new RegExp(`^\\[compaction\\]\\nCompacted from ${n(120_000)} tokens \\(.* to expand\\)$`));
 	const expanded = plain(renderRecord(entry("percy-compaction", record), true, t).render(200));
-	for (const want of [`Compacted in place from ~${n(120_000)} to ~${n(80_000)} tokens`, "Messages 5-9:", "Built the parser.", "Tests pass.", "Trimmed the output of message 12."]) {
+	for (const want of [
+		`Compacted from ${n(120_000)} tokens`,
+		`Context now uses about ${n(80_000)} tokens: 1 range collapsed, 1 tool output trimmed.`,
+		"Messages 5-9:",
+		"Built the parser.",
+		"Tests pass.",
+		"Trimmed the output of message 12.",
+	]) {
 		assert.ok(expanded.includes(want), `${want}\n${expanded}`);
 	}
+});
+
+test("a compaction card expands with a left click, like pi's card", () => {
+	const card = renderRecord(entry("percy-compaction", record), false, t);
+	card.render(200); // Establish Box's mouse layout before dispatching the click.
+	const result = card.handleMouse?.({
+		type: "click",
+		button: "left",
+		x: 1,
+		y: 1,
+		screenX: 1,
+		screenY: 1,
+		width: 200,
+		height: 4,
+		shift: false,
+		alt: false,
+		ctrl: false,
+	});
+	assert.equal(result?.handled, true);
+	assert.match(plain(card.render(200)), new RegExp(`Compacted from ${n(120_000)} tokens`));
+	assert.match(plain(card.render(200)), /Context now uses about/);
 });
 
 test("nudges show their first line, and the index on expand", () => {
