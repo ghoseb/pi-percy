@@ -24,6 +24,19 @@ const t = {
   bold: (s: string) => s,
 } as unknown as Theme;
 
+const renderedTokens: string[] = [];
+const tokenTheme = {
+  fg: (token: string, s: string) => {
+    renderedTokens.push(`fg:${token}`);
+    return s;
+  },
+  bg: (token: string, s: string) => {
+    renderedTokens.push(`bg:${token}`);
+    return s;
+  },
+  bold: (s: string) => s,
+} as unknown as Theme;
+
 const plain = (lines: string[]) =>
   lines
     // eslint-disable-next-line no-control-regex -- ANSI escape sequences
@@ -58,10 +71,10 @@ test("a compact call shows its action and counts, not its raw arguments", () => 
       t,
     ).render(200),
   );
-  assert.equal(compact, "compact_in_place 2 ranges, 2 tool outputs");
+  assert.equal(compact, "compact in place 2 ranges, 2 tool outputs");
   assert.doesNotMatch(compact, /1357|summary/);
-  assert.equal(plain(renderCompactCall({ action: "index" }, t).render(200)), "compact_in_place index");
-  assert.equal(plain(renderCompactCall({ action: "compact" }, t).render(200)), "compact_in_place compact");
+  assert.equal(plain(renderCompactCall({ action: "index" }, t).render(200)), "compact in place index");
+  assert.equal(plain(renderCompactCall({ action: "compact" }, t).render(200)), "compact in place compact");
 });
 
 test("a failed compact result collapses validation details", () => {
@@ -75,6 +88,10 @@ test("a failed compact result collapses validation details", () => {
   const expanded = plain(renderCompactResult(result, { expanded: true, isPartial: false }, t, true).render(200));
   assert.ok(expanded.includes("collapse 23164-23191"), expanded);
   assert.ok(expanded.includes("fix only the reported problems"), expanded);
+
+  renderedTokens.length = 0;
+  renderCompactResult(result, { expanded: false, isPartial: false }, tokenTheme, true).render(200);
+  assert.ok(renderedTokens.includes("fg:warning"));
 });
 
 test("an index result collapses its table", () => {

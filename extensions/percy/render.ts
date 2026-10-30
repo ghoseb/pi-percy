@@ -20,7 +20,6 @@ import {
   TruncatedText,
 } from "@earendil-works/pi-tui";
 import type { StoredCompaction } from "./branch.ts";
-import { COMPACT_TOOL } from "./types.ts";
 
 type CustomMessage<T = unknown> = Parameters<MessageRenderer<T>>[0];
 
@@ -102,7 +101,11 @@ export function renderCompactCall(args: unknown, theme: Theme): Component {
       : [ranges > 0 ? plural(ranges, "range") : "", outputs > 0 ? plural(outputs, "tool output") : ""]
           .filter(Boolean)
           .join(", ") || "compact";
-  return new TruncatedText(theme.fg("toolTitle", theme.bold(COMPACT_TOOL)) + theme.fg("dim", ` ${details}`), 0, 0);
+  return new TruncatedText(
+    theme.fg("toolTitle", theme.bold("compact in place")) + theme.fg("dim", ` ${details}`),
+    0,
+    0,
+  );
 }
 
 function toolResultText(result: { content: unknown }): string {
@@ -120,7 +123,7 @@ function expandableResult(
   summary: string,
   details: string,
   expanded: boolean,
-  color: "error" | "success",
+  color: "warning" | "success",
 ): Component {
   if (expanded) return new Text(theme.fg(color, details), 0, 0);
   return new TruncatedText(
@@ -142,7 +145,7 @@ export function renderCompactResult(
     const count = /^(\d+) problems:/.exec(output)?.[1];
     const summary =
       count === undefined ? "Nothing compacted" : `Nothing compacted: ${plural(Number(count), "problem")}`;
-    return expandableResult(theme, summary, output, options.expanded, "error");
+    return expandableResult(theme, summary, output, options.expanded, "warning");
   }
   if (output.startsWith("## Index")) {
     const rows = (/```\n([\s\S]*?)```/.exec(output)?.[1] ?? "").split("\n").filter(Boolean).length - 1;
