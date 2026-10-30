@@ -158,6 +158,25 @@ test("compaction retains a nudge that keeps a system message after a user turn",
   assert.deepEqual(roles, ["assistant", "custom", "system", "user"]);
 });
 
+test("compaction validation ignores an old system-boundary problem", () => {
+  const sm = SessionManager.inMemory("/tmp");
+  sm.appendMessage(assistant(0, x(400)).message as Appendable);
+  sm.appendMessage({ role: "system", content: "Already misplaced system instructions.", timestamp: 2 });
+  sm.appendMessage(user(0, "current request").message as Appendable);
+  const v = view(sm);
+  assert.deepEqual(v.systemBoundaries, [2]);
+  // This session already has the provider-invalid order. Validation must not
+  // report it again when an operation leaves that existing order alone.
+  assert.doesNotThrow(() =>
+    compactRequest(
+      v.items,
+      limits,
+      { collapse: [{ from: "1", to: "1", note: "old work" }] },
+      { systemBoundaries: v.systemBoundaries },
+    ),
+  );
+});
+
 test("message numbers and notes survive a fork of a branch with labels", () => {
   const sm = session(base());
   // A label in the middle of the branch: fork moves labels to the end.

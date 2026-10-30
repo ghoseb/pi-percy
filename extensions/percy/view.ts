@@ -51,13 +51,28 @@ export function applyCompaction(items: readonly Item[], c: Compaction, recordSeq
  * directly after an assistant message. System messages are not compactable,
  * so branchView records their positions separately from its editable items.
  */
-export function systemBoundaryProblems(items: readonly Item[], systemBoundaries: readonly number[]): string[] {
+/** The system-entry positions that currently have an invalid assistant predecessor. */
+export function invalidSystemBoundaries(items: readonly Item[], systemBoundaries: readonly number[]): number[] {
+  const invalid: number[] = [];
+  for (const system of systemBoundaries) {
+    const previous = items.findLast((item) => item.from < system);
+    if (previous?.message.role === "assistant") invalid.push(system);
+  }
+  return invalid;
+}
+
+export function systemBoundaryProblems(
+  items: readonly Item[],
+  systemBoundaries: readonly number[],
+  existing: readonly number[] = [],
+): string[] {
   const problems: string[] = [];
+  const allowed = new Set(existing);
   for (const system of systemBoundaries) {
     // A collapsed item may span over the omitted system entry. Its carrier is
     // still the message Pi sends immediately before that system message.
     const previous = items.findLast((item) => item.from < system);
-    if (previous?.message.role === "assistant") {
+    if (previous?.message.role === "assistant" && !allowed.has(system)) {
       problems.push(
         `system message ${system} would follow assistant message ${previous.from}-${previous.to}; preserve a user message before that system boundary`,
       );
@@ -76,19 +91,20 @@ export function safeCompactionEvidence(
   items: readonly Item[],
   evidence: ReturnType<typeof compactionEvidence>,
   systemBoundaries: readonly number[],
+  existing: readonly number[] = [],
 ): ReturnType<typeof compactionEvidence> {
   let view = [...items];
   const seqs: number[] = [];
   const toolCallIds: string[] = [];
   for (const seq of evidence.seqs) {
     const next = hideItems(view, [seq], []);
-    if (systemBoundaryProblems(next, systemBoundaries).length > 0) continue;
+    if (systemBoundaryProblems(next, systemBoundaries, existing).length > 0) continue;
     view = next;
     seqs.push(seq);
   }
   for (const toolCallId of evidence.toolCallIds) {
     const next = hideItems(view, [], [toolCallId]);
-    if (systemBoundaryProblems(next, systemBoundaries).length > 0) continue;
+    if (systemBoundaryProblems(next, systemBoundaries, existing).length > 0) continue;
     view = next;
     toolCallIds.push(toolCallId);
   }

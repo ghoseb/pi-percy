@@ -4,7 +4,7 @@
 import { indexOfRow, splitRows } from "./rows.ts";
 import { DEBUG_COMMAND, type Compaction, emptyCompaction, type Item } from "./types.ts";
 import { rowTrims } from "./validate.ts";
-import { applyCompaction, compactionView, systemBoundaryProblems } from "./view.ts";
+import { applyCompaction, compactionView, invalidSystemBoundaries, systemBoundaryProblems } from "./view.ts";
 
 export const DEBUG_USAGE = `usage: /${DEBUG_COMMAND} [index] | /${DEBUG_COMMAND} squish <from>-<to> <summary> | /${DEBUG_COMMAND} trim <id>`;
 
@@ -62,8 +62,9 @@ export function parseDebugCommand(
   } else {
     throw new Error(DEBUG_USAGE);
   }
+  const existingSystemProblems = invalidSystemBoundaries(history, systemBoundaries);
   const after = applyCompaction(history, c, 0); // throws if it does not fit
-  const systemProblems = systemBoundaryProblems(after, systemBoundaries);
+  const systemProblems = systemBoundaryProblems(after, systemBoundaries, existingSystemProblems);
   if (systemProblems.length > 0) throw new Error(systemProblems.join("\n"));
   return { kind: "record", compaction: c };
 }
