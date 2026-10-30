@@ -7,6 +7,7 @@ import {
   keyText,
   type MessageRenderer,
   type Theme,
+  type ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
 import {
   Box,
@@ -102,6 +103,53 @@ export function renderCompactCall(args: unknown, theme: Theme): Component {
           .filter(Boolean)
           .join(", ") || "compact";
   return new TruncatedText(theme.fg("toolTitle", theme.bold(COMPACT_TOOL)) + theme.fg("dim", ` ${details}`), 0, 0);
+}
+
+function toolResultText(result: { content: unknown }): string {
+  if (typeof result.content === "string") return result.content;
+  if (!Array.isArray(result.content)) return "";
+  return result.content
+    .map((block) =>
+      isRecord(block) && block["type"] === "text" && typeof block["text"] === "string" ? block["text"] : "",
+    )
+    .join("\n");
+}
+
+function expandableResult(
+  theme: Theme,
+  summary: string,
+  details: string,
+  expanded: boolean,
+  color: "error" | "success",
+): Component {
+  if (expanded) return new Text(theme.fg(color, details), 0, 0);
+  return new TruncatedText(
+    theme.fg(color, `${summary} (`) + theme.fg("dim", keyText("app.tools.expand")) + theme.fg(color, " to expand)"),
+    0,
+    0,
+  );
+}
+
+/** A terse tool-result row; full validation text remains on the expanded TUI view and in LLM context. */
+export function renderCompactResult(
+  result: { content: unknown },
+  options: ToolRenderResultOptions,
+  theme: Theme,
+  isError: boolean,
+): Component {
+  const output = toolResultText(result);
+  if (isError) {
+    const count = /^(\d+) problems:/.exec(output)?.[1];
+    const summary =
+      count === undefined ? "Nothing compacted" : `Nothing compacted: ${plural(Number(count), "problem")}`;
+    return expandableResult(theme, summary, output, options.expanded, "error");
+  }
+  if (output.startsWith("## Index")) {
+    const rows = (/```\n([\s\S]*?)```/.exec(output)?.[1] ?? "").split("\n").filter(Boolean).length - 1;
+    const summary = rows > 0 ? `Index: ${plural(rows, "row")} to compact` : "Index: nothing to compact yet";
+    return expandableResult(theme, summary, output, options.expanded, "success");
+  }
+  return new TruncatedText(theme.fg("success", output), 0, 0);
 }
 
 /** A compaction record: what was collapsed and trimmed. */

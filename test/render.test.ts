@@ -4,7 +4,13 @@ import assert from "node:assert/strict";
 import { before, test } from "node:test";
 import { type CustomEntry, initTheme, type Theme } from "@earendil-works/pi-coding-agent";
 import type { StoredCompaction } from "../extensions/percy/branch.ts";
-import { renderCompactCall, renderIndex, renderNudge, renderRecord } from "../extensions/percy/render.ts";
+import {
+  renderCompactCall,
+  renderCompactResult,
+  renderIndex,
+  renderNudge,
+  renderRecord,
+} from "../extensions/percy/render.ts";
 import { NUDGE_TYPE } from "../extensions/percy/types.ts";
 
 before(() => initTheme("dark"));
@@ -56,6 +62,30 @@ test("a compact call shows its action and counts, not its raw arguments", () => 
   assert.doesNotMatch(compact, /1357|summary/);
   assert.equal(plain(renderCompactCall({ action: "index" }, t).render(200)), "compact_in_place index");
   assert.equal(plain(renderCompactCall({ action: "compact" }, t).render(200)), "compact_in_place compact");
+});
+
+test("a failed compact result collapses validation details", () => {
+  const output =
+    "4 problems:\n- collapse 23164-23191: covers 23175, which can only be collapsed on its own\n- collapse 23193-23206: covers 23199, which can only be collapsed on its own\n- collapse 23208-23249: covers 23225, which can only be collapsed on its own\n- collapse 23414-23466: covers 23427, which can only be collapsed on its own\n\nNothing was compacted; fix only the reported problems and send the whole request again.";
+  const result = { content: [{ type: "text" as const, text: output }] };
+  const collapsed = plain(renderCompactResult(result, { expanded: false, isPartial: false }, t, true).render(200));
+  assert.match(collapsed, /^Nothing compacted: 4 problems \(.* to expand\)$/);
+  assert.doesNotMatch(collapsed, /23164|fix only/);
+
+  const expanded = plain(renderCompactResult(result, { expanded: true, isPartial: false }, t, true).render(200));
+  assert.ok(expanded.includes("collapse 23164-23191"), expanded);
+  assert.ok(expanded.includes("fix only the reported problems"), expanded);
+});
+
+test("an index result collapses its table", () => {
+  const output =
+    '## Index\n\n```\nid  role  tokens  content\n1   user* 2       text "x"\n2   user* 2       text "y"\n```';
+  const result = { content: [{ type: "text" as const, text: output }] };
+  const collapsed = plain(renderCompactResult(result, { expanded: false, isPartial: false }, t, false).render(200));
+  assert.match(collapsed, /^Index: 2 rows to compact \(.* to expand\)$/);
+  assert.ok(
+    plain(renderCompactResult(result, { expanded: true, isPartial: false }, t, false).render(200)).includes('text "x"'),
+  );
 });
 
 test("a compaction record, like pi's compaction message", () => {

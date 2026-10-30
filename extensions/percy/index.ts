@@ -30,7 +30,7 @@ import { idleNudgeText, worthIdleCompaction } from "./idle.ts";
 import { compactIndex } from "./index-render.ts";
 import { type NudgeSettings, nudgeDue, sizeLine } from "./nudge.ts";
 import { renderOriginals, resolveIds } from "./recall.ts";
-import { renderCompactCall, renderIndex, renderNudge, renderRecord } from "./render.ts";
+import { renderCompactCall, renderCompactResult, renderIndex, renderNudge, renderRecord } from "./render.ts";
 import { itemTokens } from "./rows.ts";
 import { DEFAULT_SETTINGS, loadSettings, type PercySettings } from "./settings.ts";
 import { type AgentMessage, COMPACT_TOOL, NUDGE_TYPE, RECALL_TOOL } from "./types.ts";
@@ -312,6 +312,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
       promptGuidelines: COMPACT_PROMPT_GUIDELINES,
       parameters: compactParameters,
       renderCall: (args, theme) => renderCompactCall(args, theme),
+      renderResult: (result, options, theme, context) => renderCompactResult(result, options, theme, context.isError),
       prepareArguments: (args) => stringIds(args) as Static<typeof compactParameters>,
       executionMode: "sequential",
       execute(toolCallId, params, _signal, _onUpdate, ctx) {
