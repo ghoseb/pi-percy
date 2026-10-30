@@ -69,21 +69,27 @@ export interface PercyOptions {
   piSettings?: (ctx: ExtensionContext) => PiSettings;
 }
 
-const COMPACT_DESCRIPTION = `Selectively compact this conversation's older context.
-Use it when a context nudge supplies an index or the user asks to compact context.
-Call with action "index" first: it lists the older messages and explains what to do.
-(Right after a "Context is Nk." nudge, which carries the index, you can skip it.)
-Then call with action "compact", giving one or both of trim (tool-output rows)
-and collapse (message ranges with short notes). Originals stay in the session; ${RECALL_TOOL} retrieves them.`;
+const COMPACT_DESCRIPTION = [
+  "Selectively compact this conversation's older context.",
+  "Use it when a context nudge supplies an index or the user asks to compact context.",
+  'Call with action "index" first: it lists the older messages and explains what to do.',
+  '(Right after a "Context is Nk." nudge, which carries the index, you can skip it.)',
+  'Then call with action "compact", giving one or both of trim (tool-output rows) and collapse (message ranges with short notes).',
+  "Prefer obsolete outputs, abandoned approaches, and completed tasks that are no longer current; retain only their task, final outcome, decision, and reason.",
+  `Originals stay in the session; ${RECALL_TOOL} retrieves them.`,
+].join(" ");
 
 const COMPACT_PROMPT_GUIDELINES = [
   "Use compact_in_place only for context housekeeping after its context nudge or a user request; it does not replace completing the user's work.",
   'When compacting, use the provided index (or call action "index") and preserve decisions, paths, commands, ids, and later corrections in your notes.',
+  "Prefer dead ends, superseded investigations, abandoned approaches, and completed tasks that are no longer current. Collapse the related user request on its own, then safe work ranges; retain one short note with the task, final outcome, decision, reason, and replacement. Trim large obsolete tool outputs.",
 ];
 
-const RECALL_DESCRIPTION = `Retrieve original messages from the current branch, including content hidden, collapsed, or trimmed by ${COMPACT_TOOL}.
-Give message numbers, ranges like 12-20, or note ids like s30.1 (for the messages the note replaced).
-Output is truncated to ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}; ask for fewer ids to see more.`;
+const RECALL_DESCRIPTION = [
+  `Retrieve original messages from the current branch, including content hidden, collapsed, or trimmed by ${COMPACT_TOOL}.`,
+  "Give message numbers, ranges like 12-20, or note ids like s30.1 (for the messages the note replaced).",
+  `Output is truncated to ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}; ask for fewer ids to see more.`,
+].join(" ");
 
 const compactParameters = Type.Object({
   action: StringEnum(["index", "compact"] as const),

@@ -6,29 +6,32 @@ import { aloneRows } from "./validate.ts";
 import { compactionView } from "./view.ts";
 
 function guidance(maxCollapseTokens: number): string {
-  return `Look for dead ends, out-of-date tool outputs (superseded file reads, old
-build and test logs), side quests and finished subprojects. Collapse each into
-a short note that keeps what still matters: decisions, findings, paths,
-commands, ids. Write readable sentences or bullets with normal whitespace.
-Keep words, numbers, and units clearly separated. Shorten by dropping obsolete
-details, not by removing spaces or joining words.
-Trim tool outputs you no longer need. Big tool inputs and
-outputs are most of the context, so focus there. Compacting only a little is
-fine; when unsure, leave it. Originals stay retrievable by id with the
-${RECALL_TOOL} tool.
-
-Then call ${COMPACT_TOOL} with action "compact": trim lists ids of rows whose
-tool outputs you no longer need; collapse lists {from, to, note} ranges of ids
-from the table. A range may not cover more than ~${Math.floor(maxCollapseTokens / 1000)}k tokens unless it is a
-single row. Rows marked * are messages from the user, notes from earlier
-compactions and summaries: they carry the task and its rules, so a range may
-not cover one unless it is just that row.`;
+  const selection = [
+    "Look for dead ends, out-of-date tool outputs (superseded file reads, old build and test logs), side quests, and finished subprojects.",
+    "Collapse each into a short note that keeps what still matters: decisions, findings, paths, commands, and ids.",
+    "Write readable sentences or bullets with normal whitespace. Keep words, numbers, and units clearly separated.",
+    "Shorten by dropping obsolete details, not by removing spaces or joining words.",
+    "When an approach was abandoned or replaced, remove its request, exploration, implementation attempts, tests, and logs from active context.",
+    "Preserve one short note with the final decision, why it changed, and what now applies.",
+    "When a task is complete and later work has moved on, compact its request, implementation, tests, and logs in the same way.",
+    "Preserve one short note that states the completed task, its outcome, and any durable decision or path.",
+    "Do not retain intermediate failed attempts unless they constrain current work.",
+    "Trim tool outputs you no longer need. Big tool inputs and outputs are most of the context, so focus there.",
+    `Compacting only a little is fine; when unsure, leave it. Originals stay retrievable by id with the ${RECALL_TOOL} tool.`,
+  ].join(" ");
+  const request = [
+    `Then call ${COMPACT_TOOL} with action "compact": trim lists ids of rows whose tool outputs you no longer need, and collapse lists {from, to, note} ranges of ids from the table.`,
+    `A range may not cover more than ~${Math.floor(maxCollapseTokens / 1000)}k tokens unless it is a single row.`,
+    "Rows marked * are messages from the user, notes from earlier compactions, and summaries: they carry the task and its rules, so a range may not cover one unless it is just that row.",
+  ].join(" ");
+  return `${selection}\n\n${request}`;
 }
 
-const TABLE_INTRO = `One row per message, oldest first, except that a tool call and its outputs
-share a row. id is the message number (of the call, for a shared row), or
-s<n>.<i> for a note from an earlier compaction. tokens are estimated; \`→ N\`
-gives the tokens of a call's output, or says it is trimmed or missing.`;
+const TABLE_INTRO = [
+  "One row per message, oldest first, except that a tool call and its outputs share a row.",
+  "id is the message number (of the call, for a shared row), or s<n>.<i> for a note from an earlier compaction.",
+  "tokens are estimated; `→ N` gives the tokens of a call's output, or says it is trimmed or missing.",
+].join(" ");
 
 /** Renders the index of history the agent compacts from. */
 export function compactIndex(history: readonly Item[], limits: Limits): string {

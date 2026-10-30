@@ -138,6 +138,11 @@ test("index asks for readable notes", () => {
     "readable sentences or bullets with normal whitespace",
     "words, numbers, and units clearly separated",
     "not by removing spaces or joining words",
+    "When an approach was abandoned or replaced",
+    "Preserve one short note with the final decision",
+    "When a task is complete and later work has moved on",
+    "Preserve one short note that states the completed task",
+    "Do not retain intermediate failed attempts unless they constrain current work",
   ]) {
     assert.ok(index.includes(want), want);
   }
