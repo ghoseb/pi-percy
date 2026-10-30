@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Message } from "@earendil-works/pi-ai";
-import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { SessionEntry, SessionManager } from "@earendil-works/pi-coding-agent";
 import { RECORD_TYPE } from "../extensions/percy/branch.ts";
 import { NUDGE_TYPE } from "../extensions/percy/types.ts";
 import { dump, type Harness, startHarness } from "./harness.ts";
@@ -72,6 +72,30 @@ test("an idle conversation gets one compaction turn", async () => {
     await until(() => idleNudges(h).length === 2 && h.session.isIdle, "the second idle nudge");
   } finally {
     h.dispose();
+  }
+});
+
+test("a resumed session arms idle compaction from persisted activity", async () => {
+  const first = await startHarness({ limits: { keepRecentTokens: 1 }, nudge: { at: 1e9 }, idle: { minutes: 0 } });
+  let manager: SessionManager | undefined;
+  try {
+    await first.send("hello");
+    await first.call("echo", { text: "OUTPUT ", times: 300 });
+    manager = first.session.sessionManager;
+  } finally {
+    first.dispose();
+  }
+
+  if (!manager) throw new Error("the initial session did not create a session manager");
+  const resumed = await startHarness(
+    { limits: { keepRecentTokens: 1 }, nudge: { at: 1e9 }, idle: IDLE },
+    { sessionManager: manager },
+  );
+  try {
+    await until(() => idleNudges(resumed).length === 1 && resumed.session.isIdle, "the resumed idle compaction turn");
+    assert.equal(resumed.requests.length, 1);
+  } finally {
+    resumed.dispose();
   }
 });
 

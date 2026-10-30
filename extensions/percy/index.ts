@@ -228,6 +228,41 @@ export function createPercyExtension(options: PercyOptions = {}) {
       idleTimer = undefined;
     };
 
+    /** The newest persisted user-visible activity time, ignoring system-prompt updates. */
+    function lastActivityAt(ctx: ExtensionContext): number | undefined {
+      const branch = ctx.sessionManager.getBranch();
+      for (let i = branch.length - 1; i >= 0; i--) {
+        const entry = branch[i]!;
+        if (entry.type !== "message" || entry.message.role === "system") continue;
+        const time = Date.parse(entry.timestamp);
+        if (!Number.isNaN(time)) return time;
+      }
+      return undefined;
+    }
+
+    /** An idle run has already happened and no user message has resumed the conversation. */
+    function idleCompactionBlocked(ctx: ExtensionContext): boolean {
+      const branch = ctx.sessionManager.getBranch();
+      for (let i = branch.length - 1; i >= 0; i--) {
+        const entry = branch[i]!;
+        if (entry.type === "message" && entry.message.role === "user") return false;
+        if (entry.type === "custom_message" && entry.customType === NUDGE_TYPE) {
+          return (entry.details as { idle?: boolean } | undefined)?.idle === true;
+        }
+      }
+      return false;
+    }
+
+    /** Arm idle compaction after a settled run, reload, or session resume. */
+    function armIdle(ctx: ExtensionContext, activityAt = lastActivityAt(ctx)) {
+      cancelIdle();
+      if (settings.idle.minutes <= 0 || activityAt === undefined || idleCompactionBlocked(ctx)) return;
+      const wait = Math.max(0, settings.idle.minutes * 60_000 - (Date.now() - activityAt));
+      idleTimer = setTimeout(() => startIdleCompaction(ctx), wait);
+      // An idle timer must not keep pi from exiting.
+      idleTimer.unref?.();
+    }
+
     pi.on("session_start", (_event, ctx) => {
       pending.clear();
       debugDrafts = [];
@@ -240,6 +275,9 @@ export function createPercyExtension(options: PercyOptions = {}) {
       for (const problem of loaded.problems) ctx.ui.notify(`pi-percy: ${problem}`, "warning");
       warnedModel = undefined;
       checkModel(ctx);
+      // /reload and a resumed session create a new extension runtime. Restore
+      // the pending idle deadline from persisted conversation activity.
+      armIdle(ctx);
     });
     pi.on("model_select", (event, ctx) => checkModel(ctx, event.model));
     pi.on("session_shutdown", cancelIdle);
@@ -264,9 +302,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
         return;
       }
       if (event.aborted || settings.idle.minutes <= 0) return;
-      idleTimer = setTimeout(() => startIdleCompaction(ctx), settings.idle.minutes * 60_000);
-      // An idle timer must not keep pi from exiting.
-      idleTimer.unref?.();
+      armIdle(ctx, Date.now());
     });
     pi.on("cache_warming_decision", () => (warmingStopped ? { action: "stop" } : undefined));
 
