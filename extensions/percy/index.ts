@@ -25,7 +25,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "typebox";
 import { type BranchView, branchView, compactionDrafts, RECORD_TYPE, type StoredCompaction } from "./branch.ts";
-import { DEBUG_USAGE, parseDebugCommand } from "./debug.ts";
+import { debugCompletions, DEBUG_USAGE, parseDebugCommand } from "./debug.ts";
 import { idleNudgeText, worthIdleCompaction } from "./idle.ts";
 import { compactIndex } from "./index-render.ts";
 import { type NudgeSettings, nudgeDue, sizeLine } from "./nudge.ts";
@@ -368,6 +368,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
 
     pi.registerCommand("compact-debug", {
       description: `Testing aid for in-place compaction (${DEBUG_USAGE.replace("usage: ", "")})`,
+      getArgumentCompletions: debugCompletions,
       handler: (args, ctx) => {
         try {
           const view = currentView(ctx);

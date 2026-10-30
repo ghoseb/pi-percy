@@ -7,7 +7,27 @@ import { rowTrims } from "./validate.ts";
 import { applyCompaction, compactionView } from "./view.ts";
 
 export const DEBUG_USAGE =
-  "usage: /compact-debug | /compact-debug squish <from>-<to> <summary> | /compact-debug trim <id>";
+  "usage: /compact-debug [index] | /compact-debug squish <from>-<to> <summary> | /compact-debug trim <id>";
+
+const DEBUG_COMPLETIONS = [
+  { value: "index", label: "index", description: "Show the compaction index without changing context" },
+  {
+    value: "squish ",
+    label: "squish <from>-<to> <summary>",
+    description: "Record a test collapse of one message range",
+  },
+  { value: "trim ", label: "trim <id>", description: "Record test trimming for one tool-output row" },
+] as const;
+
+/** TUI completion items for the first /compact-debug argument. */
+export function debugCompletions(argumentPrefix: string) {
+  // Pi replaces the whole argument prefix with a selected value. Once the
+  // command is complete, leave ranges, ids, and summaries to normal editing.
+  if (/\s/.test(argumentPrefix.trimStart())) return null;
+  const prefix = argumentPrefix.trimStart();
+  const items = DEBUG_COMPLETIONS.filter((item) => item.value.startsWith(prefix));
+  return items.length > 0 ? items : null;
+}
 
 export type DebugCommand = { kind: "index" } | { kind: "record"; compaction: Compaction };
 
@@ -18,7 +38,7 @@ export type DebugCommand = { kind: "index" } | { kind: "record"; compaction: Com
  */
 export function parseDebugCommand(args: string, history: readonly Item[]): DebugCommand {
   const fields = args.trim().split(/\s+/).filter(Boolean);
-  if (fields.length === 0) return { kind: "index" };
+  if (fields.length === 0 || (fields[0] === "index" && fields.length === 1)) return { kind: "index" };
   const c = emptyCompaction();
   if (fields[0] === "squish" && fields.length >= 3) {
     const range = /^(\d+)-(\d+)$/.exec(fields[1]!);
