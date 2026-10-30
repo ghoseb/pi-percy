@@ -97,7 +97,7 @@ export const COMPACT_TOOL = "compact_in_place";
 export const RECALL_TOOL = "recall";
 export const COMPACT_COMMAND = "percy:compact-in-place";
 export const DEBUG_COMMAND = "percy:compact-debug";
-export const UNDO_COMMAND = "percy:compact-undo";
+export const REWIND_COMMAND = "percy:rewind-compaction";
 export const TOGGLE_COMMAND = "percy:toggle-compaction";
 /** customType of context nudges (size and idle), hidden by compacting. */
 export const NUDGE_TYPE = "percy-nudge";

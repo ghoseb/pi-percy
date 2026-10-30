@@ -41,8 +41,8 @@ import {
   DEBUG_COMMAND,
   NUDGE_TYPE,
   RECALL_TOOL,
+  REWIND_COMMAND,
   TOGGLE_COMMAND,
-  UNDO_COMMAND,
 } from "./types.ts";
 import { compactRequest } from "./validate.ts";
 import { applyCompaction, editsBetween } from "./view.ts";
@@ -437,11 +437,11 @@ export function createPercyExtension(options: PercyOptions = {}) {
       },
     });
 
-    pi.registerCommand(UNDO_COMMAND, {
-      description: "Restore the active branch to before the newest pi-percy compaction",
+    pi.registerCommand(REWIND_COMMAND, {
+      description: "Rewind the active branch to before the newest pi-percy compaction",
       async handler(_args, ctx) {
         if (!ctx.isIdle()) {
-          ctx.ui.notify("pi-percy: wait for the current turn to finish before undoing compaction", "warning");
+          ctx.ui.notify("pi-percy: wait for the current turn to finish before rewinding compaction", "warning");
           return;
         }
         const record = [...ctx.sessionManager.getBranch()]
@@ -453,10 +453,10 @@ export function createPercyExtension(options: PercyOptions = {}) {
         }
         const result = await ctx.navigateTree(record.parentId, { summarize: false });
         if (result.cancelled) {
-          ctx.ui.notify("pi-percy: compaction undo was cancelled", "warning");
+          ctx.ui.notify("pi-percy: compaction rewind was cancelled", "warning");
           return;
         }
-        ctx.ui.notify("pi-percy: restored the branch to before the newest compaction", "info");
+        ctx.ui.notify("pi-percy: rewound the branch to before the newest compaction", "info");
       },
     });
 

@@ -6,7 +6,13 @@ import type { SessionEntry, SessionManager } from "@earendil-works/pi-coding-age
 import { RECORD_TYPE } from "../extensions/percy/branch.ts";
 import { COMPACT_REQUEST } from "../extensions/percy/index.ts";
 import { noteText } from "../extensions/percy/messages.ts";
-import { COMPACT_COMMAND, DEBUG_COMMAND, NUDGE_TYPE, TOGGLE_COMMAND, UNDO_COMMAND } from "../extensions/percy/types.ts";
+import {
+  COMPACT_COMMAND,
+  DEBUG_COMMAND,
+  NUDGE_TYPE,
+  REWIND_COMMAND,
+  TOGGLE_COMMAND,
+} from "../extensions/percy/types.ts";
 import { dump, GREETING, type Harness, startHarness } from "./harness.ts";
 
 const ofType = (h: Harness, type: string, customType: string) =>
@@ -55,7 +61,7 @@ test("/percy:toggle-compaction controls compaction for this session", async () =
   }
 });
 
-test("/percy:compact-undo returns to before the newest compaction without a model request", async () => {
+test("/percy:rewind-compaction returns to before the newest compaction without a model request", async () => {
   const h = await startHarness({ limits: { keepRecentTokens: 1 } });
   try {
     await h.send("hello");
@@ -72,7 +78,7 @@ test("/percy:compact-undo returns to before the newest compaction without a mode
     assert.ok(record?.parentId, "compaction was not recorded");
     const requests = h.requests.length;
 
-    await h.send(`/${UNDO_COMMAND}`);
+    await h.send(`/${REWIND_COMMAND}`);
     assert.equal(h.session.sessionManager.getLeafId(), record.parentId);
     assert.equal(
       h.session.sessionManager
@@ -81,7 +87,7 @@ test("/percy:compact-undo returns to before the newest compaction without a mode
       0,
     );
     assert.equal(h.requests.length, requests, "undo must not request a model response");
-    assert.match(h.notifications.at(-1)?.message ?? "", /restored the branch/);
+    assert.match(h.notifications.at(-1)?.message ?? "", /rewound the branch/);
   } finally {
     h.dispose();
   }

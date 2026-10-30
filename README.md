@@ -99,7 +99,7 @@ New user input cancels the idle timer. An idle compaction does not start another
 | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
 | `/percy:compact-in-place [instructions]`     | Activate `compact_in_place` if needed. Ask the agent to compact context. Instructions can say what to keep. |
 | `/percy:compact-debug [index\|squish\|trim]` | Show the index or record a direct test compaction. Use this command for development.                        |
-| `/percy:compact-undo`                        | Restore the active branch to before the newest pi-percy compaction.                                         |
+| `/percy:rewind-compaction`                   | Rewind the active branch to before the newest pi-percy compaction.                                          |
 | `/percy:toggle-compaction`                   | Enable or disable pi-percy context compaction for this session.                                             |
 | `/reload`                                    | Reload Pi extensions and read changed settings.                                                             |
 
@@ -119,11 +119,11 @@ Type `/percy:compact-debug` and press Tab to select a subcommand:
 
 The command rejects an unknown row, a row without trim-able output, or a collapse that does not fit the current view.
 
-### Undo a compaction
+### Rewind a compaction
 
-`/percy:compact-undo` needs no model request. It moves the active session-tree leaf to the entry before the newest `percy-compaction` record. The old branch and its original messages remain in the session file. Use this command if a compaction produces a provider-invalid context.
+`/percy:rewind-compaction` needs no model request. It moves the active session-tree leaf to the entry before the newest `percy-compaction` record. This rewinds the active branch. It leaves that compaction and every later message on an abandoned branch. Pi keeps that branch and its original messages in the session file; use `/tree` to return to it.
 
-The command does not run while the agent is working. Wait for the current turn to end first.
+Use this command if a compaction produces a provider-invalid context. The command does not run while the agent is working. Wait for the current turn to end first.
 
 ### Temporarily disable compaction
 
