@@ -4,7 +4,7 @@
 import { indexOfRow, splitRows } from "./rows.ts";
 import { type Compaction, emptyCompaction, type Item } from "./types.ts";
 import { rowTrims } from "./validate.ts";
-import { applyCompaction, compactionView } from "./view.ts";
+import { applyCompaction, compactionView, systemBoundaryProblems } from "./view.ts";
 
 export const DEBUG_USAGE =
   "usage: /compact-debug [index] | /compact-debug squish <from>-<to> <summary> | /compact-debug trim <id>";
@@ -36,7 +36,11 @@ export type DebugCommand = { kind: "index" } | { kind: "record"; compaction: Com
  * squish takes message numbers; a trim takes an index row id. Throws with the
  * usage, or with why the record does not fit the view.
  */
-export function parseDebugCommand(args: string, history: readonly Item[]): DebugCommand {
+export function parseDebugCommand(
+  args: string,
+  history: readonly Item[],
+  systemBoundaries: readonly number[] = [],
+): DebugCommand {
   const fields = args.trim().split(/\s+/).filter(Boolean);
   if (fields.length === 0 || (fields[0] === "index" && fields.length === 1)) return { kind: "index" };
   const c = emptyCompaction();
@@ -59,6 +63,8 @@ export function parseDebugCommand(args: string, history: readonly Item[]): Debug
   } else {
     throw new Error(DEBUG_USAGE);
   }
-  applyCompaction(history, c, 0); // throws if it does not fit
+  const after = applyCompaction(history, c, 0); // throws if it does not fit
+  const systemProblems = systemBoundaryProblems(after, systemBoundaries);
+  if (systemProblems.length > 0) throw new Error(systemProblems.join("\n"));
   return { kind: "record", compaction: c };
 }

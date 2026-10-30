@@ -10,7 +10,14 @@ import {
   type Limits,
   type Trim,
 } from "./types.ts";
-import { applyCompaction, compactionEvidence, compactionView, editsBetween } from "./view.ts";
+import {
+  applyCompaction,
+  compactionEvidence,
+  compactionView,
+  editsBetween,
+  safeCompactionEvidence,
+  systemBoundaryProblems,
+} from "./view.ts";
 
 export const RETRY_GUIDANCE =
   "Nothing was compacted; fix only the reported problems and send the whole request again. " +
@@ -191,17 +198,36 @@ export interface CompactResult {
   text: string;
 }
 
+export interface CompactionConstraints {
+  /** Retained Pi system-message positions, which compaction must not make invalid. */
+  systemBoundaries?: readonly number[];
+}
+
 /**
  * Validates the agent's request against history and returns the record to
  * store. The record also hides the evidence of compacting: the nudges, and the
  * earlier calls of compact_in_place (the running call stays, as a receipt).
  */
-export function compactRequest(history: readonly Item[], limits: Limits, input: CompactInput): CompactResult {
+export function compactRequest(
+  history: readonly Item[],
+  limits: Limits,
+  input: CompactInput,
+  constraints: CompactionConstraints = {},
+): CompactResult {
   const compaction = buildCompaction(history, limits, input);
-  const evidence = compactionEvidence(applyCompaction(history, compaction, 0));
+  const beforeHidingEvidence = applyCompaction(history, compaction, 0);
+  const evidence = safeCompactionEvidence(
+    beforeHidingEvidence,
+    compactionEvidence(beforeHidingEvidence),
+    constraints.systemBoundaries ?? [],
+  );
   compaction.hiddenSeqs = evidence.seqs;
   compaction.hiddenToolCallIds = evidence.toolCallIds;
   const after = applyCompaction(history, compaction, 0);
+  const systemProblems = systemBoundaryProblems(after, constraints.systemBoundaries ?? []);
+  if (systemProblems.length === 1) throw new Error(`${systemProblems[0]}. ${RETRY_GUIDANCE}`);
+  if (systemProblems.length > 1)
+    throw new Error(`${systemProblems.length} problems:\n- ${systemProblems.join("\n- ")}\n\n${RETRY_GUIDANCE}`);
   const tokensBefore = itemTokens(history);
   const tokensAfter = itemTokens(after);
   return {

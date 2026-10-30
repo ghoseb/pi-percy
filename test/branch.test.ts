@@ -5,7 +5,7 @@ import { type SessionBoundaryDraft, SessionManager } from "@earendil-works/pi-co
 import { branchView, compactionDrafts } from "../extensions/percy/branch.ts";
 import { noteText, trimmedText } from "../extensions/percy/messages.ts";
 import { renderOriginals, resolveIds } from "../extensions/percy/recall.ts";
-import { DEFAULT_LIMITS, emptyCompaction, type Item } from "../extensions/percy/types.ts";
+import { DEFAULT_LIMITS, emptyCompaction, type Item, NUDGE_TYPE } from "../extensions/percy/types.ts";
 import { compactRequest } from "../extensions/percy/validate.ts";
 import { applyCompaction, editsBetween } from "../extensions/percy/view.ts";
 import { assistant, call, output, spans, textOf, user, x } from "./fixtures.ts";
@@ -125,7 +125,37 @@ test("system messages are left out of the view", () => {
   const sm = SessionManager.inMemory("/tmp");
   sm.appendMessage({ role: "system", content: "You are pi.", timestamp: 1 });
   sm.appendMessage(user(0, "hi").message as Appendable);
-  assert.equal(spans(view(sm).items), "2-2");
+  const v = view(sm);
+  assert.equal(spans(v.items), "2-2");
+  assert.deepEqual(v.systemBoundaries, [1]);
+});
+
+test("compaction retains a nudge that keeps a system message after a user turn", () => {
+  const sm = SessionManager.inMemory("/tmp");
+  sm.appendMessage(assistant(0, x(400)).message as Appendable);
+  sm.appendMessage({
+    role: "custom",
+    customType: NUDGE_TYPE,
+    content: [{ type: "text", text: "Context is 200k." }],
+    display: true,
+    timestamp: 2,
+  });
+  sm.appendMessage({ role: "system", content: "New system instructions.", timestamp: 3 });
+  sm.appendMessage(user(0, "current request").message as Appendable);
+  const v = view(sm);
+  assert.deepEqual(v.systemBoundaries, [3]);
+  const result = compactRequest(
+    v.items,
+    limits,
+    { collapse: [{ from: "1", to: "1", note: "old work" }] },
+    { systemBoundaries: v.systemBoundaries },
+  );
+  // The nudge normally hides as compaction evidence, but it is the only
+  // user-like message immediately before this retained system entry.
+  assert.deepEqual(result.compaction.hiddenSeqs, []);
+  commit(sm, compactionDrafts(v, result.compaction, result.edits, result));
+  const roles = sm.buildSessionProjection().entries.flatMap((entry) => entry.messages.map((message) => message.role));
+  assert.deepEqual(roles, ["assistant", "custom", "system", "user"]);
 });
 
 test("message numbers and notes survive a fork of a branch with labels", () => {

@@ -46,6 +46,56 @@ export function applyCompaction(items: readonly Item[], c: Compaction, recordSeq
 }
 
 /**
+ * Checks Pi's retained mid-conversation system messages. Anthropic permits a
+ * system message after a user turn, but rejects one that compaction leaves
+ * directly after an assistant message. System messages are not compactable,
+ * so branchView records their positions separately from its editable items.
+ */
+export function systemBoundaryProblems(items: readonly Item[], systemBoundaries: readonly number[]): string[] {
+  const problems: string[] = [];
+  for (const system of systemBoundaries) {
+    // A collapsed item may span over the omitted system entry. Its carrier is
+    // still the message Pi sends immediately before that system message.
+    const previous = items.findLast((item) => item.from < system);
+    if (previous?.message.role === "assistant") {
+      problems.push(
+        `system message ${system} would follow assistant message ${previous.from}-${previous.to}; preserve a user message before that system boundary`,
+      );
+    }
+  }
+  return problems;
+}
+
+/**
+ * Hide compaction evidence when it does not make a retained system message
+ * follow an assistant. A reload can insert a system message immediately after
+ * a percy nudge; retaining that one nudge is safer than producing a provider-
+ * invalid request. Candidates apply in the same order as hideItems.
+ */
+export function safeCompactionEvidence(
+  items: readonly Item[],
+  evidence: ReturnType<typeof compactionEvidence>,
+  systemBoundaries: readonly number[],
+): ReturnType<typeof compactionEvidence> {
+  let view = [...items];
+  const seqs: number[] = [];
+  const toolCallIds: string[] = [];
+  for (const seq of evidence.seqs) {
+    const next = hideItems(view, [seq], []);
+    if (systemBoundaryProblems(next, systemBoundaries).length > 0) continue;
+    view = next;
+    seqs.push(seq);
+  }
+  for (const toolCallId of evidence.toolCallIds) {
+    const next = hideItems(view, [], [toolCallId]);
+    if (systemBoundaryProblems(next, systemBoundaries).length > 0) continue;
+    view = next;
+    toolCallIds.push(toolCallId);
+  }
+  return { seqs, toolCallIds };
+}
+
+/**
  * Drops the original messages seqs, and the tool calls toolCallIds with their
  * results, from items. An assistant message left without tool calls goes: it
  * was about the call. items is not modified.

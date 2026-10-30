@@ -24,6 +24,8 @@ export interface StoredCompaction {
 /** The model's view of a branch, with the numbering that names its messages. */
 export interface BranchView {
   items: Item[];
+  /** Branch positions of system messages that must retain a non-assistant predecessor. */
+  systemBoundaries: readonly number[];
   /**
    * Message number of each entry on the branch: its 1-based position, not
    * counting label entries. pi's fork and clone drop labels from the path
@@ -67,9 +69,13 @@ export function branchView(branch: readonly SessionEntry[], projection: SessionP
   });
 
   const items: Item[] = [];
+  const systemBoundaries: number[] = [];
   for (const { sourceEntry, messages } of projection.entries) {
     for (const message of messages) {
-      if (message.role === "system") continue;
+      if (message.role === "system") {
+        systemBoundaries.push(seq(sourceEntry.id));
+        continue;
+      }
       const note = notes.get(sourceEntry.id);
       // The carrier shows the note while its edit is in effect.
       if (note && onlyText(message) === noteText(note.from, note.to, note.summary)) {
@@ -80,7 +86,14 @@ export function branchView(branch: readonly SessionEntry[], projection: SessionP
       }
     }
   }
-  return { items, seqOf, count: numbered.length, entryAt: (n) => numbered[n - 1], recordAt: (n) => records.get(n) };
+  return {
+    items,
+    systemBoundaries,
+    seqOf,
+    count: numbered.length,
+    entryAt: (n) => numbered[n - 1],
+    recordAt: (n) => records.get(n),
+  };
 }
 
 /** The text of a message whose content is a single text block, else undefined. */

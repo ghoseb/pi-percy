@@ -363,7 +363,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
           ...(params.trim === undefined ? {} : { trim: params.trim }),
           ...(params.collapse === undefined ? {} : { collapse: params.collapse }),
         };
-        const result = compactRequest(view.items, settings.limits, input);
+        const result = compactRequest(view.items, settings.limits, input, { systemBoundaries: view.systemBoundaries });
         pending.set(toolCallId, compactionDrafts(view, result.compaction, result.edits, result));
         return Promise.resolve(text(result.text));
       },
@@ -409,7 +409,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
       handler: (args, ctx) => {
         try {
           const view = currentView(ctx);
-          const command = parseDebugCommand(args, view.items);
+          const command = parseDebugCommand(args, view.items, view.systemBoundaries);
           if (command.kind === "index") {
             pi.appendEntry(INDEX_TYPE, { index: compactIndex(view.items, settings.limits) });
             return Promise.resolve();
