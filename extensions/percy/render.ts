@@ -196,7 +196,7 @@ export function renderNudge(
   return frame(theme, "context", outputPad, collapsed(theme, summary.charAt(0).toUpperCase() + summary.slice(1)));
 }
 
-/** The index shown by /compact-debug. */
+/** The index shown by /percy:compact-debug. */
 export function renderIndex(entry: CustomEntry<{ index: string }>, expanded: boolean, theme: Theme): Component {
   const index = entry.data?.index ?? "";
   if (expanded) return frame(theme, "compaction index", 1, markdown(theme, index));

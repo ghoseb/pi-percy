@@ -164,7 +164,7 @@ test("nudges show their first line, and the index on expand", () => {
   );
 });
 
-test("the /compact-debug index counts its rows", () => {
+test("the /percy:compact-debug index counts its rows", () => {
   const index =
     '## Index\n\nintro\n\n```\nid  role  tokens  content\n1   user* 2       text "x"\n2   user* 2       text "y"\n```\n';
   assert.match(

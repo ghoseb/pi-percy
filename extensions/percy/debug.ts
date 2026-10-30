@@ -1,13 +1,12 @@
-// /compact-debug, a testing aid: show the index, or record a squish or trim
+// /percy:compact-debug, a testing aid: show the index, or record a squish or trim
 // directly, without the validation compact_in_place applies. Port of
 // Shelley's /compact-debug.
 import { indexOfRow, splitRows } from "./rows.ts";
-import { type Compaction, emptyCompaction, type Item } from "./types.ts";
+import { DEBUG_COMMAND, type Compaction, emptyCompaction, type Item } from "./types.ts";
 import { rowTrims } from "./validate.ts";
 import { applyCompaction, compactionView, systemBoundaryProblems } from "./view.ts";
 
-export const DEBUG_USAGE =
-  "usage: /compact-debug [index] | /compact-debug squish <from>-<to> <summary> | /compact-debug trim <id>";
+export const DEBUG_USAGE = `usage: /${DEBUG_COMMAND} [index] | /${DEBUG_COMMAND} squish <from>-<to> <summary> | /${DEBUG_COMMAND} trim <id>`;
 
 const DEBUG_COMPLETIONS = [
   { value: "index", label: "index", description: "Show the compaction index without changing context" },
@@ -19,7 +18,7 @@ const DEBUG_COMPLETIONS = [
   { value: "trim ", label: "trim <id>", description: "Record test trimming for one tool-output row" },
 ] as const;
 
-/** TUI completion items for the first /compact-debug argument. */
+/** TUI completion items for the first /percy:compact-debug argument. */
 export function debugCompletions(argumentPrefix: string) {
   // Pi replaces the whole argument prefix with a selected value. Once the
   // command is complete, leave ranges, ids, and summaries to normal editing.
@@ -32,7 +31,7 @@ export function debugCompletions(argumentPrefix: string) {
 export type DebugCommand = { kind: "index" } | { kind: "record"; compaction: Compaction };
 
 /**
- * Parses /compact-debug's arguments against history (the current view). A
+ * Parses /percy:compact-debug's arguments against history (the current view). A
  * squish takes message numbers; a trim takes an index row id. Throws with the
  * usage, or with why the record does not fit the view.
  */

@@ -6,7 +6,7 @@ import type { SessionEntry, SessionManager } from "@earendil-works/pi-coding-age
 import { RECORD_TYPE } from "../extensions/percy/branch.ts";
 import { COMPACT_REQUEST } from "../extensions/percy/index.ts";
 import { noteText } from "../extensions/percy/messages.ts";
-import { NUDGE_TYPE } from "../extensions/percy/types.ts";
+import { COMPACT_COMMAND, DEBUG_COMMAND, NUDGE_TYPE, TOGGLE_COMMAND, UNDO_COMMAND } from "../extensions/percy/types.ts";
 import { dump, GREETING, type Harness, startHarness } from "./harness.ts";
 
 const ofType = (h: Harness, type: string, customType: string) =>
@@ -24,12 +24,12 @@ async function until(cond: () => boolean, what: string, ms = 3000) {
   }
 }
 
-test("/compact-in-place asks the agent to compact, turning the tool on", async () => {
+test("/percy:compact-in-place asks the agent to compact, turning the tool on", async () => {
   const h = await startHarness();
   try {
     h.session.setActiveToolsByName(["echo", "recall"]);
     await h.send("hello");
-    await h.send("/compact-in-place keep the plan");
+    await h.send(`/${COMPACT_COMMAND} keep the plan`);
     // The command sends the request; its run starts after the command returns.
     await until(() => h.requests.length === 2 && h.session.isIdle, "the request's run");
     assert.ok(h.session.getActiveToolNames().includes("compact_in_place"));
@@ -39,10 +39,58 @@ test("/compact-in-place asks the agent to compact, turning the tool on", async (
   }
 });
 
+test("/percy:toggle-compaction controls compaction for this session", async () => {
+  const h = await startHarness();
+  try {
+    assert.ok(h.session.getActiveToolNames().includes("compact_in_place"));
+    await h.send(`/${TOGGLE_COMMAND}`);
+    assert.ok(!h.session.getActiveToolNames().includes("compact_in_place"));
+    assert.match(h.notifications.at(-1)?.message ?? "", /compaction disabled/);
+
+    await h.send(`/${TOGGLE_COMMAND}`);
+    assert.ok(h.session.getActiveToolNames().includes("compact_in_place"));
+    assert.match(h.notifications.at(-1)?.message ?? "", /compaction enabled/);
+  } finally {
+    h.dispose();
+  }
+});
+
+test("/percy:compact-undo returns to before the newest compaction without a model request", async () => {
+  const h = await startHarness({ limits: { keepRecentTokens: 1 } });
+  try {
+    await h.send("hello");
+    const greeting = h.session.sessionManager
+      .getBranch()
+      .findIndex((entry) => entry.type === "message" && JSON.stringify(entry.message).includes(GREETING));
+    await h.call("compact_in_place", {
+      action: "compact",
+      collapse: [{ from: String(greeting + 1), to: String(greeting + 1), note: "greeted" }],
+    });
+    const record = h.session.sessionManager
+      .getBranch()
+      .findLast((entry) => entry.type === "custom" && entry.customType === RECORD_TYPE);
+    assert.ok(record?.parentId, "compaction was not recorded");
+    const requests = h.requests.length;
+
+    await h.send(`/${UNDO_COMMAND}`);
+    assert.equal(h.session.sessionManager.getLeafId(), record.parentId);
+    assert.equal(
+      h.session.sessionManager
+        .getBranch()
+        .filter((entry) => entry.type === "custom" && entry.customType === RECORD_TYPE).length,
+      0,
+    );
+    assert.equal(h.requests.length, requests, "undo must not request a model response");
+    assert.match(h.notifications.at(-1)?.message ?? "", /restored the branch/);
+  } finally {
+    h.dispose();
+  }
+});
+
 // Port of Shelley's TestCompactDebugEndToEnd, for the parts that differ in pi:
 // a command cannot append context edits, so the record applies at the next
 // turn boundary.
-test("/compact-debug shows the index and records squishes and trims", async () => {
+test("/percy:compact-debug shows the index and records squishes and trims", async () => {
   const h = await startHarness({ limits: { keepRecentTokens: 1 } });
   try {
     await h.send("hello");
@@ -54,17 +102,17 @@ test("/compact-debug shows the index and records squishes and trims", async () =
       (e) => e.type === "message" && e.message.role === "assistant" && JSON.stringify(e.message).includes("toolCall"),
     );
 
-    await h.send("/compact-debug");
+    await h.send(`/${DEBUG_COMMAND}`);
     const [index] = ofType(h, "custom", "percy-index");
     assert.ok(index?.type === "custom" && (index.data as { index: string }).index.startsWith("## Index"));
 
     // Invalid requests record nothing.
-    await h.send("/compact-debug trim nope");
-    await h.send(`/compact-debug squish ${callSeq}-${callSeq} x`);
-    await h.send("/compact-debug squish nope");
+    await h.send(`/${DEBUG_COMMAND} trim nope`);
+    await h.send(`/${DEBUG_COMMAND} squish ${callSeq}-${callSeq} x`);
+    await h.send(`/${DEBUG_COMMAND} squish nope`);
 
-    await h.send(`/compact-debug trim ${callSeq}`);
-    await h.send(`/compact-debug squish ${greetingSeq}-${greetingSeq} The user  said hello.`);
+    await h.send(`/${DEBUG_COMMAND} trim ${callSeq}`);
+    await h.send(`/${DEBUG_COMMAND} squish ${greetingSeq}-${greetingSeq} The user  said hello.`);
     assert.equal(ofType(h, "custom", RECORD_TYPE).length, 0, "applied before a turn boundary");
     await h.send("first");
     const records = ofType(h, "custom", RECORD_TYPE);

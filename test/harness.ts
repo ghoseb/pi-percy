@@ -181,7 +181,18 @@ export async function startHarness(
       notifications.push(type === undefined ? { message } : { message, type });
     },
   } as ExtensionUIContext;
-  await session.bindExtensions({ uiContext: ui, onError: (e) => errors.push(`${e.event}: ${e.error}`) });
+  await session.bindExtensions({
+    uiContext: ui,
+    commandContextActions: {
+      waitForIdle: () => session.waitForIdle(),
+      newSession: () => Promise.resolve({ cancelled: true }),
+      fork: () => Promise.resolve({ cancelled: true }),
+      navigateTree: (targetId, options) => session.navigateTree(targetId, options),
+      switchSession: () => Promise.resolve({ cancelled: true }),
+      reload: () => session.reload(),
+    },
+    onError: (e) => errors.push(`${e.event}: ${e.error}`),
+  });
   await session.setModel(faux.getModel());
 
   const h: Harness = {

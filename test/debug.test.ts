@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { debugCompletions, parseDebugCommand } from "../extensions/percy/debug.ts";
 
-test("compact-debug completes its visible subcommands", () => {
+test("percy:compact-debug completes its visible subcommands", () => {
   assert.deepEqual(debugCompletions(""), [
     { value: "index", label: "index", description: "Show the compaction index without changing context" },
     {
@@ -22,7 +22,7 @@ test("compact-debug completes its visible subcommands", () => {
   assert.equal(debugCompletions("squish "), null);
 });
 
-test("compact-debug accepts explicit index", () => {
+test("percy:compact-debug accepts explicit index", () => {
   assert.deepEqual(parseDebugCommand("", []), { kind: "index" });
   assert.deepEqual(parseDebugCommand("index", []), { kind: "index" });
 });

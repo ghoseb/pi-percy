@@ -65,7 +65,7 @@ test("a committed compaction shows as notes and trimmed outputs", () => {
   compact(sm, { collapse: [{ from: "s7.0", to: "s7.0", note: "p" }] });
   assert.deepEqual(view(sm).items[1]!.note, { id: "s10.0", summary: "p" });
 
-  // A collapse enclosing a note (as /compact-debug may record) omits the
+  // A collapse enclosing a note (as /percy:compact-debug may record) omits the
   // note's carrier along with the rest of the range.
   const v2 = view(sm);
   const enclosing = { ...emptyCompaction(), squishes: [{ from: 2, to: 5, summary: "built it" }] };

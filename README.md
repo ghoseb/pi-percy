@@ -95,27 +95,39 @@ New user input cancels the idle timer. An idle compaction does not start another
 
 ## Commands
 
-| Command                                | Purpose                                                                                                     |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `/compact-in-place [instructions]`     | Activate `compact_in_place` if needed. Ask the agent to compact context. Instructions can say what to keep. |
-| `/compact-debug [index\|squish\|trim]` | Show the index or record a direct test compaction. Use this command for development.                        |
-| `/reload`                              | Reload Pi extensions and read changed settings.                                                             |
+| Command                                      | Purpose                                                                                                     |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `/percy:compact-in-place [instructions]`     | Activate `compact_in_place` if needed. Ask the agent to compact context. Instructions can say what to keep. |
+| `/percy:compact-debug [index\|squish\|trim]` | Show the index or record a direct test compaction. Use this command for development.                        |
+| `/percy:compact-undo`                        | Restore the active branch to before the newest pi-percy compaction.                                         |
+| `/percy:toggle-compaction`                   | Enable or disable pi-percy context compaction for this session.                                             |
+| `/reload`                                    | Reload Pi extensions and read changed settings.                                                             |
 
-The usual workflow is automatic. Wait for a context nudge. The agent uses its index and calls `compact_in_place`. Use `/compact-in-place` when you want to request compaction earlier.
+The usual workflow is automatic. Wait for a context nudge. The agent uses its index and calls `compact_in_place`. Use `/percy:compact-in-place` when you want to request compaction earlier.
 
-### Use `compact-debug`
+### Use `percy:compact-debug`
 
-`/compact-debug` is a development command. It records a test compaction without the normal tool request flow. It does not change the model context until the next response boundary.
+`/percy:compact-debug` is a development command. It records a test compaction without the normal tool request flow. It does not change the model context until the next response boundary.
 
-Type `/compact-debug` and press Tab to select a subcommand:
+Type `/percy:compact-debug` and press Tab to select a subcommand:
 
-| Command                                       | Action                                                                                                      |
-| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `/compact-debug` or `/compact-debug index`    | Show the current compaction index. It does not change context.                                              |
-| `/compact-debug squish <from>-<to> <summary>` | Record a test collapse. `from` and `to` are message numbers from the index. The remaining text is the note. |
-| `/compact-debug trim <id>`                    | Record trimming for the tool-output row with this index ID. A shared tool-call row trims all its outputs.   |
+| Command                                                | Action                                                                                                      |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `/percy:compact-debug` or `/percy:compact-debug index` | Show the current compaction index. It does not change context.                                              |
+| `/percy:compact-debug squish <from>-<to> <summary>`    | Record a test collapse. `from` and `to` are message numbers from the index. The remaining text is the note. |
+| `/percy:compact-debug trim <id>`                       | Record trimming for the tool-output row with this index ID. A shared tool-call row trims all its outputs.   |
 
 The command rejects an unknown row, a row without trim-able output, or a collapse that does not fit the current view.
+
+### Undo a compaction
+
+`/percy:compact-undo` needs no model request. It moves the active session-tree leaf to the entry before the newest `percy-compaction` record. The old branch and its original messages remain in the session file. Use this command if a compaction produces a provider-invalid context.
+
+The command does not run while the agent is working. Wait for the current turn to end first.
+
+### Temporarily disable compaction
+
+`/percy:toggle-compaction` enables or disables pi-percy compaction for the current session. When it is disabled, pi-percy does not send context nudges or start idle compaction turns. Run the command again to enable it. The setting does not change `settings.json`.
 
 ## Configuration
 
