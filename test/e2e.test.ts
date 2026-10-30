@@ -116,6 +116,18 @@ test("compact_in_place end to end", async () => {
   assert.ok(recalled.text.includes(`## Message ${greetingSeq} (assistant)\n${GREETING}`), recalled.text);
   assert.ok(recalled.text.includes(`## Message ${firstResultSeq} (echo output for #`), recalled.text);
   assert.ok(recalled.text.includes("FIRST_OUTPUT"), recalled.text);
+
+  // A direct range works as well, including both collapsed and trimmed rows.
+  await h.call("recall", { ids: [`${greetingSeq}-${firstResultSeq}`] });
+  const range = h.lastToolResult();
+  assert.equal(range.isError, false, range.text);
+  assert.ok(
+    range.text.includes(`## Message ${greetingSeq} (assistant)
+${GREETING}`),
+    range.text,
+  );
+  assert.ok(range.text.includes("FIRST_OUTPUT"), range.text);
+
   await h.call("recall", { ids: ["s999.0", "x"] });
   const bad = h.lastToolResult();
   assert.ok(
