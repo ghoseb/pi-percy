@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { before, test } from "node:test";
 import { type CustomEntry, initTheme, type Theme } from "@earendil-works/pi-coding-agent";
 import type { StoredCompaction } from "../extensions/percy/branch.ts";
-import { renderIndex, renderNudge, renderRecord } from "../extensions/percy/render.ts";
+import { renderCompactCall, renderIndex, renderNudge, renderRecord } from "../extensions/percy/render.ts";
 import { NUDGE_TYPE } from "../extensions/percy/types.ts";
 
 before(() => initTheme("dark"));
@@ -12,7 +12,11 @@ before(() => initTheme("dark"));
 /** Numbers as the renderers format them, in this machine's locale. */
 const n = (x: number) => x.toLocaleString();
 
-const t = { fg: (_c: string, s: string) => s, bg: (_c: string, s: string) => s } as unknown as Theme;
+const t = {
+  fg: (_c: string, s: string) => s,
+  bg: (_c: string, s: string) => s,
+  bold: (s: string) => s,
+} as unknown as Theme;
 
 const plain = (lines: string[]) =>
   lines
@@ -33,6 +37,26 @@ const record: StoredCompaction = {
   tokensBefore: 120_000,
   tokensAfter: 80_000,
 };
+
+test("a compact call shows its action and counts, not its raw arguments", () => {
+  const compact = plain(
+    renderCompactCall(
+      {
+        action: "compact",
+        collapse: [
+          { from: "1357", to: "1419", note: "A long summary that must not appear in the tool row." },
+          { from: "1422", to: "1429", note: "Another summary." },
+        ],
+        trim: ["1437", "1459"],
+      },
+      t,
+    ).render(200),
+  );
+  assert.equal(compact, "compact_in_place 2 ranges, 2 tool outputs");
+  assert.doesNotMatch(compact, /1357|summary/);
+  assert.equal(plain(renderCompactCall({ action: "index" }, t).render(200)), "compact_in_place index");
+  assert.equal(plain(renderCompactCall({ action: "compact" }, t).render(200)), "compact_in_place compact");
+});
 
 test("a compaction record, like pi's compaction message", () => {
   const collapsed = plain(renderRecord(entry("percy-compaction", record), false, t).render(200));

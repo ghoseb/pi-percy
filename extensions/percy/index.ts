@@ -30,7 +30,7 @@ import { idleNudgeText, worthIdleCompaction } from "./idle.ts";
 import { compactIndex } from "./index-render.ts";
 import { type NudgeSettings, nudgeDue, sizeLine } from "./nudge.ts";
 import { renderOriginals, resolveIds } from "./recall.ts";
-import { renderIndex, renderNudge, renderRecord } from "./render.ts";
+import { renderCompactCall, renderIndex, renderNudge, renderRecord } from "./render.ts";
 import { itemTokens } from "./rows.ts";
 import { DEFAULT_SETTINGS, loadSettings, type PercySettings } from "./settings.ts";
 import { type AgentMessage, COMPACT_TOOL, NUDGE_TYPE, RECALL_TOOL } from "./types.ts";
@@ -59,13 +59,19 @@ export interface PercyOptions {
   piSettings?: (ctx: ExtensionContext) => PiSettings;
 }
 
-const COMPACT_DESCRIPTION = `Compact this conversation's context in place.
+const COMPACT_DESCRIPTION = `Selectively compact this conversation's older context.
+Use it when a context nudge supplies an index or the user asks to compact context.
 Call with action "index" first: it lists the older messages and explains what to do.
 (Right after a "Context is Nk." nudge, which carries the index, you can skip it.)
-Then call with action "compact" to collapse message ranges into short notes
-and trim tool outputs. Originals stay in the session; ${RECALL_TOOL} shows them.`;
+Then call with action "compact", giving one or both of trim (tool-output rows)
+and collapse (message ranges with short notes). Originals stay in the session; ${RECALL_TOOL} retrieves them.`;
 
-const RECALL_DESCRIPTION = `Show original messages that ${COMPACT_TOOL} collapsed into notes or trimmed.
+const COMPACT_PROMPT_GUIDELINES = [
+  "Use compact_in_place only for context housekeeping after its context nudge or a user request; it does not replace completing the user's work.",
+  'When compacting, use the provided index (or call action "index") and preserve decisions, paths, commands, ids, and later corrections in your notes.',
+];
+
+const RECALL_DESCRIPTION = `Retrieve original messages from the current branch, including content hidden, collapsed, or trimmed by ${COMPACT_TOOL}.
 Give message numbers, ranges like 12-20, or note ids like s30.1 (for the messages the note replaced).
 Output is truncated to ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}; ask for fewer ids to see more.`;
 
@@ -302,8 +308,10 @@ export function createPercyExtension(options: PercyOptions = {}) {
       name: COMPACT_TOOL,
       label: "Compact in place",
       description: COMPACT_DESCRIPTION,
-      promptSnippet: "Compact this conversation's context in place",
+      promptSnippet: "Selectively compact older conversation context",
+      promptGuidelines: COMPACT_PROMPT_GUIDELINES,
       parameters: compactParameters,
+      renderCall: (args, theme) => renderCompactCall(args, theme),
       prepareArguments: (args) => stringIds(args) as Static<typeof compactParameters>,
       executionMode: "sequential",
       execute(toolCallId, params, _signal, _onUpdate, ctx) {
@@ -328,7 +336,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
       name: RECALL_TOOL,
       label: "Recall",
       description: RECALL_DESCRIPTION,
-      promptSnippet: "Show original messages that compaction collapsed or trimmed",
+      promptSnippet: "Retrieve original messages hidden or compacted by compact_in_place",
       parameters: recallParameters,
       prepareArguments: (args) => stringIds(args) as Static<typeof recallParameters>,
       execute(_toolCallId, params, _signal, _onUpdate, ctx) {

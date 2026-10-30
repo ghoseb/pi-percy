@@ -8,8 +8,18 @@ import {
   type MessageRenderer,
   type Theme,
 } from "@earendil-works/pi-coding-agent";
-import { Box, Container, type Component, Markdown, MouseRegion, Spacer, Text } from "@earendil-works/pi-tui";
+import {
+  Box,
+  Container,
+  type Component,
+  Markdown,
+  MouseRegion,
+  Spacer,
+  Text,
+  TruncatedText,
+} from "@earendil-works/pi-tui";
 import type { StoredCompaction } from "./branch.ts";
+import { COMPACT_TOOL } from "./types.ts";
 
 type CustomMessage<T = unknown> = Parameters<MessageRenderer<T>>[0];
 
@@ -70,6 +80,29 @@ function markdown(theme: Theme, text: string): Markdown {
 }
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+function arrayLength(value: unknown): number {
+  return Array.isArray(value) ? value.length : 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/** A concise status line in place of Pi's generic tool-call argument dump. */
+export function renderCompactCall(args: unknown, theme: Theme): Component {
+  const input = isRecord(args) ? args : {};
+  const action = input["action"] === "index" ? "index" : "compact";
+  const ranges = arrayLength(input["collapse"]);
+  const outputs = arrayLength(input["trim"]);
+  const details =
+    action === "index"
+      ? "index"
+      : [ranges > 0 ? plural(ranges, "range") : "", outputs > 0 ? plural(outputs, "tool output") : ""]
+          .filter(Boolean)
+          .join(", ") || "compact";
+  return new TruncatedText(theme.fg("toolTitle", theme.bold(COMPACT_TOOL)) + theme.fg("dim", ` ${details}`), 0, 0);
+}
 
 /** A compaction record: what was collapsed and trimmed. */
 export function renderRecord(entry: CustomEntry<StoredCompaction>, expanded: boolean, theme: Theme): Component {
