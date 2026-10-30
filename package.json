@@ -7,6 +7,11 @@
     "pi-package"
   ],
   "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22.6.0",
+    "pnpm": ">=10.33.0"
+  },
   "pi": {
     "extensions": [
       "./extensions/percy"
@@ -15,7 +20,12 @@
   "scripts": {
     "test": "node --test 'test/**/*.test.ts'",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && npm test"
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "fix": "pnpm run lint:fix && pnpm run format",
+    "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test"
   },
   "peerDependencies": {
     "@earendil-works/pi-agent-core": "*",
@@ -26,7 +36,13 @@
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^1.4.0",
+    "@eslint/js": "^10.0.1",
     "@types/node": "^26.6.5",
-    "typescript": "^7.0.2"
+    "eslint": "^10.13.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.13.0",
+    "prettier": "^3.9.10",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.72.1"
   }
 }

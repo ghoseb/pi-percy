@@ -9,40 +9,40 @@ import { type AgentMessage, type Compaction, COMPACT_TOOL, type Edit, type Item,
  * modified. Throws if c does not fit the view.
  */
 export function applyCompaction(items: readonly Item[], c: Compaction, recordSeq: number): Item[] {
-	const out = [...items];
-	for (const t of c.trims) {
-		const i = out.findIndex((it) => !it.note && it.from === t.seq);
-		if (i < 0) throw new Error(`trim: no message ${t.seq} in context`);
-		const it = out[i]!;
-		const m = it.message;
-		if (m.role !== "toolResult" || m.toolCallId !== t.toolCallId) {
-			throw new Error(`trim: message ${t.seq} has no tool result for ${t.toolCallId}`);
-		}
-		out[i] = { ...it, message: withText(m, trimmedText(t.seq)) };
-	}
-	c.squishes.forEach((s, n) => {
-		const i = out.findIndex((it) => it.from === s.from);
-		const j = out.findIndex((it) => it.to === s.to);
-		if (i < 0 || j < 0 || j < i) {
-			throw new Error(`squish: range ${s.from}-${s.to} does not align with messages in context`);
-		}
-		if (isToolResult(out[i]!.message)) {
-			throw new Error(`squish: range ${s.from}-${s.to} starts with a tool result whose call precedes it`);
-		}
-		if (hasToolCall(out[j]!.message)) {
-			throw new Error(`squish: range ${s.from}-${s.to} ends with a tool call whose result follows it`);
-		}
-		const fixed = out.slice(i, j + 1).find((it) => !isEditable(it.message));
-		if (fixed) throw new Error(`squish: range ${s.from}-${s.to} covers ${fixed.from}, which is not editable`);
-		// The first message carries the note: pi replaces its content.
-		out.splice(i, j - i + 1, {
-			from: s.from,
-			to: s.to,
-			note: { id: `s${recordSeq}.${n}`, summary: s.summary },
-			message: withText(out[i]!.message, noteText(s.from, s.to, s.summary)),
-		});
-	});
-	return hideItems(out, c.hiddenSeqs, c.hiddenToolCallIds);
+  const out = [...items];
+  for (const t of c.trims) {
+    const i = out.findIndex((it) => !it.note && it.from === t.seq);
+    if (i < 0) throw new Error(`trim: no message ${t.seq} in context`);
+    const it = out[i]!;
+    const m = it.message;
+    if (m.role !== "toolResult" || m.toolCallId !== t.toolCallId) {
+      throw new Error(`trim: message ${t.seq} has no tool result for ${t.toolCallId}`);
+    }
+    out[i] = { ...it, message: withText(m, trimmedText(t.seq)) };
+  }
+  c.squishes.forEach((s, n) => {
+    const i = out.findIndex((it) => it.from === s.from);
+    const j = out.findIndex((it) => it.to === s.to);
+    if (i < 0 || j < 0 || j < i) {
+      throw new Error(`squish: range ${s.from}-${s.to} does not align with messages in context`);
+    }
+    if (isToolResult(out[i]!.message)) {
+      throw new Error(`squish: range ${s.from}-${s.to} starts with a tool result whose call precedes it`);
+    }
+    if (hasToolCall(out[j]!.message)) {
+      throw new Error(`squish: range ${s.from}-${s.to} ends with a tool call whose result follows it`);
+    }
+    const fixed = out.slice(i, j + 1).find((it) => !isEditable(it.message));
+    if (fixed) throw new Error(`squish: range ${s.from}-${s.to} covers ${fixed.from}, which is not editable`);
+    // The first message carries the note: pi replaces its content.
+    out.splice(i, j - i + 1, {
+      from: s.from,
+      to: s.to,
+      note: { id: `s${recordSeq}.${n}`, summary: s.summary },
+      message: withText(out[i]!.message, noteText(s.from, s.to, s.summary)),
+    });
+  });
+  return hideItems(out, c.hiddenSeqs, c.hiddenToolCallIds);
 }
 
 /**
@@ -51,31 +51,31 @@ export function applyCompaction(items: readonly Item[], c: Compaction, recordSeq
  * was about the call. items is not modified.
  */
 export function hideItems(items: readonly Item[], seqs: readonly number[], toolCallIds: readonly string[]): Item[] {
-	let out = [...items];
-	for (const seq of seqs) {
-		const i = out.findIndex((it) => !it.note && it.from === seq);
-		if (i < 0) throw new Error(`hide: no message ${seq} in context`);
-		out.splice(i, 1);
-	}
-	for (const id of toolCallIds) {
-		let found = 0;
-		out = out.flatMap((it) => {
-			const m = it.message;
-			if (m.role === "toolResult" && m.toolCallId === id) {
-				found++;
-				return [];
-			}
-			if (m.role === "assistant" && m.content.some((c) => c.type === "toolCall" && c.id === id)) {
-				found++;
-				const content = m.content.filter((c) => !(c.type === "toolCall" && c.id === id));
-				if (!content.some((c) => c.type === "toolCall")) return [];
-				return [{ ...it, message: { ...m, content } }];
-			}
-			return [it];
-		});
-		if (found !== 2) throw new Error(`hide: tool call ${id} and its result are not both in context`);
-	}
-	return out;
+  let out = [...items];
+  for (const seq of seqs) {
+    const i = out.findIndex((it) => !it.note && it.from === seq);
+    if (i < 0) throw new Error(`hide: no message ${seq} in context`);
+    out.splice(i, 1);
+  }
+  for (const id of toolCallIds) {
+    let found = 0;
+    out = out.flatMap((it) => {
+      const m = it.message;
+      if (m.role === "toolResult" && m.toolCallId === id) {
+        found++;
+        return [];
+      }
+      if (m.role === "assistant" && m.content.some((c) => c.type === "toolCall" && c.id === id)) {
+        found++;
+        const content = m.content.filter((c) => !(c.type === "toolCall" && c.id === id));
+        if (!content.some((c) => c.type === "toolCall")) return [];
+        return [{ ...it, message: { ...m, content } }];
+      }
+      return [it];
+    });
+    if (found !== 2) throw new Error(`hide: tool call ${id} and its result are not both in context`);
+  }
+  return out;
 }
 
 /**
@@ -85,35 +85,35 @@ export function hideItems(items: readonly Item[], seqs: readonly number[], toolC
  * get the new content.
  */
 export function editsBetween(before: readonly Item[], after: readonly Item[]): Edit[] {
-	const kept = new Map(after.map((it) => [it.from, it]));
-	const known = new Set(before.map((it) => it.from));
-	for (const it of after) {
-		if (!known.has(it.from)) throw new Error(`edits: message ${it.from} is not in the view`);
-	}
-	const edits: Edit[] = [];
-	for (const it of before) {
-		const now = kept.get(it.from);
-		if (now && sameContent(now.message, it.message)) continue;
-		if (!isEditable(it.message)) throw new Error(`edits: message ${it.from} is not editable`);
-		edits.push({ seq: it.from, replacement: now ? { content: contentOf(now.message) } : null });
-	}
-	return edits;
+  const kept = new Map(after.map((it) => [it.from, it]));
+  const known = new Set(before.map((it) => it.from));
+  for (const it of after) {
+    if (!known.has(it.from)) throw new Error(`edits: message ${it.from} is not in the view`);
+  }
+  const edits: Edit[] = [];
+  for (const it of before) {
+    const now = kept.get(it.from);
+    if (now && sameContent(now.message, it.message)) continue;
+    if (!isEditable(it.message)) throw new Error(`edits: message ${it.from} is not editable`);
+    edits.push({ seq: it.from, replacement: now ? { content: contentOf(now.message) } : null });
+  }
+  return edits;
 }
 
 function contentOf(m: AgentMessage): Exclude<Edit["replacement"], null>["content"] {
-	switch (m.role) {
-		case "user":
-		case "assistant":
-		case "toolResult":
-		case "custom":
-			return m.content;
-		default:
-			throw new Error(`a ${m.role} message is not editable`);
-	}
+  switch (m.role) {
+    case "user":
+    case "assistant":
+    case "toolResult":
+    case "custom":
+      return m.content;
+    default:
+      throw new Error(`a ${m.role} message is not editable`);
+  }
 }
 
 function sameContent(a: AgentMessage, b: AgentMessage): boolean {
-	return a === b || ("content" in a && "content" in b && JSON.stringify(a.content) === JSON.stringify(b.content));
+  return a === b || ("content" in a && "content" in b && JSON.stringify(a.content) === JSON.stringify(b.content));
 }
 
 /**
@@ -121,21 +121,21 @@ function sameContent(a: AgentMessage, b: AgentMessage): boolean {
  * results are in items: the evidence of compacting, which a compaction hides.
  */
 export function compactionEvidence(items: readonly Item[]): { seqs: number[]; toolCallIds: string[] } {
-	const seqs: number[] = [];
-	const results = new Set<string>();
-	for (const it of items) {
-		if (it.note) continue;
-		const m = it.message;
-		if (m.role === "custom" && m.customType === NUDGE_TYPE) seqs.push(it.from);
-		if (m.role === "toolResult") results.add(m.toolCallId);
-	}
-	const toolCallIds: string[] = [];
-	for (const it of items) {
-		for (const c of toolCalls(it.message)) {
-			if (c.name === COMPACT_TOOL && results.has(c.id)) toolCallIds.push(c.id);
-		}
-	}
-	return { seqs, toolCallIds };
+  const seqs: number[] = [];
+  const results = new Set<string>();
+  for (const it of items) {
+    if (it.note) continue;
+    const m = it.message;
+    if (m.role === "custom" && m.customType === NUDGE_TYPE) seqs.push(it.from);
+    if (m.role === "toolResult") results.add(m.toolCallId);
+  }
+  const toolCallIds: string[] = [];
+  for (const it of items) {
+    for (const c of toolCalls(it.message)) {
+      if (c.name === COMPACT_TOOL && results.has(c.id)) toolCallIds.push(c.id);
+    }
+  }
+  return { seqs, toolCallIds };
 }
 
 /**
@@ -145,13 +145,13 @@ export function compactionEvidence(items: readonly Item[]): { seqs: number[]; to
  * the recent part while the agent works.
  */
 export function compactionView(history: readonly Item[]): Item[] {
-	const { seqs, toolCallIds } = compactionEvidence(history);
-	return hideItems(history, seqs, toolCallIds).flatMap((it) => {
-		const m = it.message;
-		if (m.role !== "assistant" || !m.content.some((c) => c.type === "toolCall" && c.name === COMPACT_TOOL)) return [it];
-		// Like hideItems, remove only the call; a message left without a call goes.
-		const content = m.content.filter((c) => !(c.type === "toolCall" && c.name === COMPACT_TOOL));
-		if (!content.some((c) => c.type === "toolCall")) return [];
-		return [{ ...it, message: { ...m, content } }];
-	});
+  const { seqs, toolCallIds } = compactionEvidence(history);
+  return hideItems(history, seqs, toolCallIds).flatMap((it) => {
+    const m = it.message;
+    if (m.role !== "assistant" || !m.content.some((c) => c.type === "toolCall" && c.name === COMPACT_TOOL)) return [it];
+    // Like hideItems, remove only the call; a message left without a call goes.
+    const content = m.content.filter((c) => !(c.type === "toolCall" && c.name === COMPACT_TOOL));
+    if (!content.some((c) => c.type === "toolCall")) return [];
+    return [{ ...it, message: { ...m, content } }];
+  });
 }

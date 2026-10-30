@@ -18,20 +18,20 @@ import type { ContextEditableContent, ContextEvent } from "@earendil-works/pi-co
 export type AgentMessage = ContextEvent["messages"][number];
 
 export interface Note {
-	/** "s<record number>.<squish index>" */
-	id: string;
-	summary: string;
+  /** "s<record number>.<squish index>" */
+  id: string;
+  summary: string;
 }
 
 export interface Item {
-	from: number;
-	to: number;
-	message: AgentMessage;
-	/**
-	 * Set on a note that replaced messages from..to. Its carrier, the message
-	 * whose content the note replaced, is message from.
-	 */
-	note?: Note;
+  from: number;
+  to: number;
+  message: AgentMessage;
+  /**
+   * Set on a note that replaced messages from..to. Its carrier, the message
+   * whose content the note replaced, is message from.
+   */
+  note?: Note;
 }
 
 /**
@@ -40,21 +40,21 @@ export interface Item {
  * content (pi keeps its role).
  */
 export interface Edit {
-	seq: number;
-	replacement: { content: ContextEditableContent } | null;
+  seq: number;
+  replacement: { content: ContextEditableContent } | null;
 }
 
 /** Replaces the items spanning from..to (inclusive) with one note. */
 export interface Squish {
-	from: number;
-	to: number;
-	summary: string;
+  from: number;
+  to: number;
+  summary: string;
 }
 
 /** Replaces the content of the tool result in message seq with a pointer. */
 export interface Trim {
-	seq: number;
-	toolCallId: string;
+  seq: number;
+  toolCallId: string;
 }
 
 /**
@@ -63,34 +63,34 @@ export interface Trim {
  * then hides.
  */
 export interface Compaction {
-	squishes: Squish[];
-	trims: Trim[];
-	/** Original messages to drop (context nudges). */
-	hiddenSeqs: number[];
-	/** Tool calls to drop with their results (earlier compact_in_place calls). */
-	hiddenToolCallIds: string[];
+  squishes: Squish[];
+  trims: Trim[];
+  /** Original messages to drop (context nudges). */
+  hiddenSeqs: number[];
+  /** Tool calls to drop with their results (earlier compact_in_place calls). */
+  hiddenToolCallIds: string[];
 }
 
 export interface Limits {
-	/** Budget of recent history that is kept as is and cannot be compacted. */
-	keepRecentTokens: number;
-	/** Most history one collapse may cover, unless it is a single row. */
-	maxCollapseTokens: number;
+  /** Budget of recent history that is kept as is and cannot be compacted. */
+  keepRecentTokens: number;
+  /** Most history one collapse may cover, unless it is a single row. */
+  maxCollapseTokens: number;
 }
 
 export const DEFAULT_LIMITS: Limits = { keepRecentTokens: 20_000, maxCollapseTokens: 20_000 };
 
 /** A collapse as the agent asks for it, by index ids. */
 export interface Collapse {
-	from: string;
-	to: string;
-	note: string;
+  from: string;
+  to: string;
+  note: string;
 }
 
 /** The compact action's input, ids already normalized to strings. */
 export interface CompactInput {
-	trim?: string[];
-	collapse?: Collapse[];
+  trim?: string[];
+  collapse?: Collapse[];
 }
 
 export const COMPACT_TOOL = "compact_in_place";
@@ -99,5 +99,5 @@ export const RECALL_TOOL = "recall";
 export const NUDGE_TYPE = "percy-nudge";
 
 export function emptyCompaction(): Compaction {
-	return { squishes: [], trims: [], hiddenSeqs: [], hiddenToolCallIds: [] };
+  return { squishes: [], trims: [], hiddenSeqs: [], hiddenToolCallIds: [] };
 }

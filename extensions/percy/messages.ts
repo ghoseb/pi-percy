@@ -5,16 +5,16 @@ import { type AgentMessage, RECALL_TOOL } from "./types.ts";
 type ToolCall = Extract<Extract<AgentMessage, { role: "assistant" }>["content"][number], { type: "toolCall" }>;
 
 export function toolCalls(m: AgentMessage): ToolCall[] {
-	if (m.role !== "assistant") return [];
-	return m.content.filter((c): c is ToolCall => c.type === "toolCall");
+  if (m.role !== "assistant") return [];
+  return m.content.filter((c): c is ToolCall => c.type === "toolCall");
 }
 
 export function hasToolCall(m: AgentMessage): boolean {
-	return toolCalls(m).length > 0;
+  return toolCalls(m).length > 0;
 }
 
 export function isToolResult(m: AgentMessage): boolean {
-	return m.role === "toolResult";
+  return m.role === "toolResult";
 }
 
 /**
@@ -23,15 +23,15 @@ export function isToolResult(m: AgentMessage): boolean {
  * summaries are not editable, so they cannot be compacted.
  */
 export function isEditable(m: AgentMessage): boolean {
-	switch (m.role) {
-		case "user":
-		case "assistant":
-		case "toolResult":
-		case "custom":
-			return true;
-		default:
-			return false;
-	}
+  switch (m.role) {
+    case "user":
+    case "assistant":
+    case "toolResult":
+    case "custom":
+      return true;
+    default:
+      return false;
+  }
 }
 
 /**
@@ -39,27 +39,27 @@ export function isEditable(m: AgentMessage): boolean {
  * the role and metadata stay.
  */
 export function withText(m: AgentMessage, text: string): AgentMessage {
-	switch (m.role) {
-		case "user":
-		case "assistant":
-		case "toolResult":
-		case "custom":
-			return { ...m, content: [{ type: "text", text }] } as AgentMessage;
-		default:
-			throw new Error(`a ${m.role} message is not editable`);
-	}
+  switch (m.role) {
+    case "user":
+    case "assistant":
+    case "toolResult":
+    case "custom":
+      return { ...m, content: [{ type: "text", text }] };
+    default:
+      throw new Error(`a ${m.role} message is not editable`);
+  }
 }
 
 /** What the model sees in place of squished messages. */
 export function noteText(from: number, to: number, summary: string): string {
-	return `[Messages ${from}-${to} compacted; ${RECALL_TOOL} shows them. Summary:]\n${summary}`;
+  return `[Messages ${from}-${to} compacted; ${RECALL_TOOL} shows them. Summary:]\n${summary}`;
 }
 
 const TRIMMED_PREFIX = "[Tool output compacted";
 
 /** What the model sees in place of a trimmed tool output. */
 export function trimmedText(seq: number): string {
-	return `${TRIMMED_PREFIX}: message ${seq}; ${RECALL_TOOL} shows it]`;
+  return `${TRIMMED_PREFIX}: message ${seq}; ${RECALL_TOOL} shows it]`;
 }
 
 /**
@@ -67,9 +67,9 @@ export function trimmedText(seq: number): string {
  * exactly a placeholder trimmedText made. Real output may start like one.
  */
 export function isTrimmedOutput(m: AgentMessage): boolean {
-	if (m.role !== "toolResult" || m.content.length !== 1) return false;
-	const c = m.content[0];
-	if (c?.type !== "text") return false;
-	const match = /^\[Tool output compacted: message (\d+); /.exec(c.text);
-	return match !== null && c.text === trimmedText(Number(match[1]));
+  if (m.role !== "toolResult" || m.content.length !== 1) return false;
+  const c = m.content[0];
+  if (c?.type !== "text") return false;
+  const match = /^\[Tool output compacted: message (\d+); /.exec(c.text);
+  return match !== null && c.text === trimmedText(Number(match[1]));
 }
