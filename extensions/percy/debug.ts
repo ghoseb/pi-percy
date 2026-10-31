@@ -62,7 +62,7 @@ export function parseDebugCommand(
   } else {
     throw new Error(DEBUG_USAGE);
   }
-  const after = applyCompaction(history, c, 0); // throws if it does not fit
+  const after = applyCompaction(history, c); // throws if it does not fit
   const systemProblems = systemBoundaryProblems(after, systemBoundaries);
   if (systemProblems.length > 0) throw new Error(systemProblems.join("\n"));
   return { kind: "record", compaction: c };

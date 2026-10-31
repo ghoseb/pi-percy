@@ -244,7 +244,7 @@ export function compactRequest(
     },
     unitProblems,
   );
-  const beforeHidingEvidence = applyCompaction(history, compaction, 0);
+  const beforeHidingEvidence = applyCompaction(history, compaction);
   const evidence = safeCompactionEvidence(
     beforeHidingEvidence,
     compactionEvidence(beforeHidingEvidence),
@@ -252,7 +252,7 @@ export function compactRequest(
   );
   compaction.hiddenSeqs = evidence.seqs;
   compaction.hiddenToolCallIds = evidence.toolCallIds;
-  const after = applyCompaction(history, compaction, 0);
+  const after = applyCompaction(history, compaction);
   const systemProblems = systemBoundaryProblems(after, systemBoundaries);
   if (systemProblems.length > 0) throw problemsError(systemProblems);
   const tokensBefore = itemTokens(history);

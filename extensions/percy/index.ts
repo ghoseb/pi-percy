@@ -495,7 +495,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
           }
           // Commands cannot append context edits; turn_end does.
           const c = command.compaction;
-          const after = applyCompaction(view.items, c, 0);
+          const after = applyCompaction(view.items, c);
           const sizes = { tokensBefore: itemTokens(view.items), tokensAfter: itemTokens(after) };
           debugDrafts.push(...compactionDrafts(view, c, editsBetween(view.items, after), sizes));
           ctx.ui.notify("pi-percy: recorded; it applies after the next model response", "info");

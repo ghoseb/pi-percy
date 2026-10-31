@@ -15,9 +15,10 @@ import { type AgentMessage, type Compaction, COMPACT_TOOL, type Edit, type Item 
 /**
  * Applies c, recorded as record number recordSeq, to items and returns the
  * view pi will show once c's edits are in (see editsBetween). items is not
- * modified. Throws if c does not fit the view.
+ * modified. Throws if c does not fit the view. recordSeq only names the new
+ * notes (s<recordSeq>.<i>); before c is recorded, its number is not known.
  */
-export function applyCompaction(items: readonly Item[], c: Compaction, recordSeq: number): Item[] {
+export function applyCompaction(items: readonly Item[], c: Compaction, recordSeq = 0): Item[] {
   const out = [...items];
   for (const t of c.trims) {
     const i = out.findIndex((it) => !it.note && it.from === t.seq);
