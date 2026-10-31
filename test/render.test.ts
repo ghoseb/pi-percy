@@ -87,10 +87,18 @@ test("a compact call shows its action and counts, not its raw arguments", () => 
 test("a failed compact result collapses validation details", () => {
   const output =
     "4 problems:\n- collapse 23164-23191: covers 23175, which can only be collapsed on its own\n- collapse 23193-23206: covers 23199, which can only be collapsed on its own\n- collapse 23208-23249: covers 23225, which can only be collapsed on its own\n- collapse 23414-23466: covers 23427, which can only be collapsed on its own\n\nNothing was compacted; fix only the reported problems and send the whole request again.";
-  const result = { content: [{ type: "text" as const, text: output }] };
+  const problems = output.split("\n").filter((l) => l.startsWith("- "));
+  const result = { content: [{ type: "text" as const, text: output }], details: { kind: "rejected", problems } };
   const collapsed = plain(renderCompactResult(result, { expanded: false, isPartial: false }, t, true).render(200));
   assert.match(collapsed, /^Nothing compacted: 4 problems \(.* to expand\)$/);
   assert.doesNotMatch(collapsed, /23164|fix only/);
+  // Recorded before results had details, or an error pi made: no count.
+  for (const details of [undefined, {}]) {
+    const old = plain(
+      renderCompactResult({ ...result, details }, { expanded: false, isPartial: false }, t, true).render(200),
+    );
+    assert.match(old, /^Nothing compacted \(.* to expand\)$/);
+  }
 
   const expanded = plain(renderCompactResult(result, { expanded: true, isPartial: false }, t, true).render(200));
   assert.ok(expanded.includes("collapse 23164-23191"), expanded);
@@ -104,11 +112,54 @@ test("a failed compact result collapses validation details", () => {
 test("an index result collapses its table", () => {
   const output =
     '## Index\n\n```\nid  role  tokens  content\n1   user* 2       text "x"\n2   user* 2       text "y"\n```';
-  const result = { content: [{ type: "text" as const, text: output }] };
+  const result = { content: [{ type: "text" as const, text: output }], details: { kind: "index", rows: 2 } };
   const collapsed = plain(renderCompactResult(result, { expanded: false, isPartial: false }, t, false).render(200));
   assert.match(collapsed, /^Index: 2 rows to compact \(.* to expand\)$/);
   assert.ok(
     plain(renderCompactResult(result, { expanded: true, isPartial: false }, t, false).render(200)).includes('text "x"'),
+  );
+  const empty = { ...result, details: { kind: "index", rows: 0 } };
+  assert.match(
+    plain(renderCompactResult(empty, { expanded: false, isPartial: false }, t, false).render(200)),
+    /^Index: nothing to compact yet \(/,
+  );
+  // Recorded before results had details: no count.
+  const old = { content: result.content };
+  assert.match(
+    plain(renderCompactResult(old, { expanded: false, isPartial: false }, t, false).render(200)),
+    /^Index \(/,
+  );
+  assert.ok(
+    plain(renderCompactResult(old, { expanded: true, isPartial: false }, t, false).render(200)).includes('text "x"'),
+  );
+});
+
+test("a successful compact result shows its counts and sizes", () => {
+  const text =
+    "Compacted: 2 collapsed, 1 trimmed; history ~12000 -> ~3000 tokens (saved ~9000). 4 safe collapse units remain.";
+  const details = { kind: "compacted", tokensBefore: 12000, tokensAfter: 3000, collapsed: 2, trimmed: 1 };
+  assert.equal(
+    plain(
+      renderCompactResult(
+        { content: [{ type: "text", text }], details },
+        { expanded: false, isPartial: false },
+        t,
+        false,
+      ).render(200),
+    ),
+    `Compacted: 2 ranges collapsed, 1 tool output trimmed; ~${n(12000)} → ~${n(3000)} tokens`,
+  );
+  // Recorded before results had details: the text as it is.
+  assert.equal(
+    plain(
+      renderCompactResult(
+        { content: [{ type: "text", text }] },
+        { expanded: false, isPartial: false },
+        t,
+        false,
+      ).render(200),
+    ),
+    text,
   );
 });
 

@@ -21,7 +21,7 @@ import {
 } from "@earendil-works/pi-tui";
 import type { StoredCompaction } from "./branch.ts";
 import { contentText, isPlainObject } from "./messages.ts";
-import type { NudgeDetails } from "./types.ts";
+import type { CompactDetails, NudgeDetails } from "./types.ts";
 
 type CustomMessage<T = unknown> = Parameters<MessageRenderer<T>>[0];
 
@@ -135,26 +135,42 @@ function expandableResult(
   );
 }
 
-/** A terse tool-result row; full validation text remains on the expanded TUI view and in LLM context. */
+const COMPACT_KINDS: readonly unknown[] = ["index", "compacted", "rejected"] satisfies CompactDetails["kind"][];
+
+/** A result's details, if pi-percy recorded them: results from before it did, and pi's own errors, have none. */
+function compactDetails(details: unknown): CompactDetails | undefined {
+  return isPlainObject(details) && COMPACT_KINDS.includes(details["kind"]) ? (details as CompactDetails) : undefined;
+}
+
+/** A terse tool-result row; the full text remains on the expanded TUI view and in LLM context. */
 export function renderCompactResult(
-  result: { content: unknown },
+  result: { content: unknown; details?: unknown },
   options: ToolRenderResultOptions,
   theme: Theme,
   isError: boolean,
 ): Component {
   const output = toolResultText(result);
-  if (isError) {
-    const count = /^(\d+) problems:/.exec(output)?.[1];
-    const summary =
-      count === undefined ? "Nothing compacted" : `Nothing compacted: ${plural(Number(count), "problem")}`;
-    return expandableResult(theme, summary, output, options.expanded, "warning");
+  const expandable = (summary: string, color: "warning" | "success") =>
+    expandableResult(theme, summary, output, options.expanded, color);
+  const d = compactDetails(result.details);
+  switch (d?.kind) {
+    case "rejected":
+      return expandable(`Nothing compacted: ${plural(d.problems.length, "problem")}`, "warning");
+    case "index":
+      return expandable(
+        d.rows > 0 ? `Index: ${plural(d.rows, "row")} to compact` : "Index: nothing to compact yet",
+        "success",
+      );
+    case "compacted": {
+      const counts = `${plural(d.collapsed, "range")} collapsed, ${plural(d.trimmed, "tool output")} trimmed`;
+      const sizes = `~${d.tokensBefore.toLocaleString()} → ~${d.tokensAfter.toLocaleString()} tokens`;
+      return new TruncatedText(theme.fg("success", `Compacted: ${counts}; ${sizes}`), 0, 0);
+    }
+    case undefined:
+      if (isError) return expandable("Nothing compacted", "warning");
+      if (output.startsWith("## Index")) return expandable("Index", "success");
+      return new TruncatedText(theme.fg("success", output), 0, 0);
   }
-  if (output.startsWith("## Index")) {
-    const rows = (/```\n([\s\S]*?)```/.exec(output)?.[1] ?? "").split("\n").filter(Boolean).length - 1;
-    const summary = rows > 0 ? `Index: ${plural(rows, "row")} to compact` : "Index: nothing to compact yet";
-    return expandableResult(theme, summary, output, options.expanded, "success");
-  }
-  return new TruncatedText(theme.fg("success", output), 0, 0);
 }
 
 /** A compaction record: what was collapsed and trimmed. */
