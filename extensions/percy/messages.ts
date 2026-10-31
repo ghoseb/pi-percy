@@ -17,6 +17,23 @@ export function isToolResult(m: AgentMessage): boolean {
   return m.role === "toolResult";
 }
 
+/** The content of a user or custom message: text, or text and image blocks. */
+export type MessageContent = Extract<AgentMessage, { role: "custom" }>["content"];
+
+/** content as text: its blocks joined by separator, each image as "[image]". */
+export function contentText(content: MessageContent, separator: string): string {
+  if (typeof content === "string") return content;
+  return content.map((c) => (c.type === "text" ? c.text : "[image]")).join(separator);
+}
+
+/** The text of a message whose content is a single text block, else undefined. */
+export function onlyText(m: AgentMessage): string | undefined {
+  if (!("content" in m)) return undefined;
+  const c = m.content;
+  if (typeof c === "string") return c;
+  return c.length === 1 && c[0]?.type === "text" ? c[0].text : undefined;
+}
+
 /** Reports whether m is a nudge, context or idle. */
 export function isNudgeMessage(m: AgentMessage): boolean {
   return m.role === "custom" && m.customType === NUDGE_TYPE;
@@ -62,9 +79,8 @@ export function trimmedText(seq: number): string {
  * exactly a placeholder trimmedText made. Real output may start like one.
  */
 export function isTrimmedOutput(m: AgentMessage): boolean {
-  if (m.role !== "toolResult" || m.content.length !== 1) return false;
-  const c = m.content[0];
-  if (c?.type !== "text") return false;
-  const match = /^\[Tool output compacted: message (\d+); /.exec(c.text);
-  return match !== null && c.text === trimmedText(Number(match[1]));
+  const text = m.role === "toolResult" ? onlyText(m) : undefined;
+  if (text === undefined) return false;
+  const match = /^\[Tool output compacted: message (\d+); /.exec(text);
+  return match !== null && text === trimmedText(Number(match[1]));
 }

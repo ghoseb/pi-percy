@@ -1,5 +1,5 @@
 // The index the agent compacts from.
-import { isTrimmedOutput } from "./messages.ts";
+import { contentText, isTrimmedOutput } from "./messages.ts";
 import { estimateTokens, itemId, itemTokens, type Row, recentStart, rowId, splitRows } from "./rows.ts";
 import { COMPACT_TOOL, type Item, type Limits, RECALL_TOOL } from "./types.ts";
 import { aloneRows, compactionUnits } from "./units.ts";
@@ -131,7 +131,7 @@ export function describeRow(row: Row): string {
         parts.push(`user bash ${quoteStart(m.command)} → ${Math.ceil(m.output.length / 4)}`);
         break;
       case "custom":
-        parts.push(`${m.customType} ${quoteStart(textOf(m.content))}`);
+        parts.push(`${m.customType} ${quoteStart(contentText(m.content, " "))}`);
         break;
       case "branchSummary":
       case "compactionSummary":
@@ -140,11 +140,6 @@ export function describeRow(row: Row): string {
     }
   }
   return parts.join(", ");
-}
-
-function textOf(content: string | readonly { type: string; text?: string }[]): string {
-  if (typeof content === "string") return content;
-  return content.map((c) => (c.type === "image" ? "[image]" : (c.text ?? ""))).join(" ");
 }
 
 /**

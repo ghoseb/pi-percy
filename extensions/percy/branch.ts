@@ -8,8 +8,8 @@ import type {
   SessionEntry,
   SessionProjection,
 } from "@earendil-works/pi-coding-agent";
-import { noteText } from "./messages.ts";
-import { type AgentMessage, type Compaction, type Edit, type Item, type NudgeDetails, NUDGE_TYPE } from "./types.ts";
+import { noteText, onlyText } from "./messages.ts";
+import { type Compaction, type Edit, type Item, type NudgeDetails, NUDGE_TYPE } from "./types.ts";
 
 /** customType of the custom entry that records a compaction. */
 export const RECORD_TYPE = "percy-compaction";
@@ -115,14 +115,6 @@ export function branchView(branch: readonly SessionEntry[], projection: SessionP
     entryAt: (n) => numbered[n - 1],
     recordAt: (n) => records.get(n),
   };
-}
-
-/** The text of a message whose content is a single text block, else undefined. */
-function onlyText(m: AgentMessage): string | undefined {
-  if (!("content" in m)) return undefined;
-  const c = m.content;
-  if (typeof c === "string") return c;
-  return c.length === 1 && c[0]?.type === "text" ? c[0].text : undefined;
 }
 
 /**

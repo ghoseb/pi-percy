@@ -20,6 +20,7 @@ import {
   TruncatedText,
 } from "@earendil-works/pi-tui";
 import type { StoredCompaction } from "./branch.ts";
+import { contentText } from "./messages.ts";
 import type { NudgeDetails } from "./types.ts";
 
 type CustomMessage<T = unknown> = Parameters<MessageRenderer<T>>[0];
@@ -180,11 +181,6 @@ export function renderRecord(entry: CustomEntry<StoredCompaction>, expanded: boo
   );
 }
 
-function textOf(content: CustomMessage["content"]): string {
-  if (typeof content === "string") return content;
-  return content.map((c) => (c.type === "text" ? c.text : "[image]")).join("\n\n");
-}
-
 /** A context nudge: the size or idle line, and the index it carried. */
 export function renderNudge(
   message: CustomMessage<NudgeDetails>,
@@ -192,7 +188,7 @@ export function renderNudge(
   outputPad: number,
   theme: Theme,
 ): Component {
-  const text = textOf(message.content);
+  const text = contentText(message.content, "\n\n");
   if (expanded) return frame(theme, "context", outputPad, markdown(theme, text));
   const first = text.split("\n")[0] ?? "";
   const summary = message.details?.idle
