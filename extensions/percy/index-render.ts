@@ -2,7 +2,7 @@
 import { isTrimmedOutput } from "./messages.ts";
 import { estimateTokens, itemId, itemTokens, type Row, recentStart, rowId, splitRows } from "./rows.ts";
 import { COMPACT_TOOL, type Item, type Limits, RECALL_TOOL } from "./types.ts";
-import { aloneRows } from "./validate.ts";
+import { aloneRows, compactionUnits } from "./units.ts";
 import { compactionView } from "./view.ts";
 
 function guidance(maxCollapseTokens: number): string {
@@ -20,7 +20,7 @@ function guidance(maxCollapseTokens: number): string {
     `Compacting only a little is fine; when unsure, leave it. Originals stay retrievable by id with the ${RECALL_TOOL} tool.`,
   ].join(" ");
   const request = [
-    `Then call ${COMPACT_TOOL} with action "compact": trim lists ids of rows whose tool outputs you no longer need, and collapse lists {from, to, note} ranges of ids from the table.`,
+    `Then call ${COMPACT_TOOL} with action "compact": trim lists ids of rows whose tool outputs you no longer need, and collapseUnits lists {id, note} safe units below. Raw collapse {from, to, note} ranges remain available for advanced use.`,
     `A range may not cover more than ~${Math.floor(maxCollapseTokens / 1000)}k tokens unless it is a single row.`,
     "Rows marked * are messages from the user, notes from earlier compactions, and summaries: they carry the task and its rules, so a range may not cover one unless it is just that row.",
   ].join(" ");
@@ -34,7 +34,11 @@ const TABLE_INTRO = [
 ].join(" ");
 
 /** Renders the index of history the agent compacts from. */
-export function compactIndex(history: readonly Item[], limits: Limits): string {
+export function compactIndex(
+  history: readonly Item[],
+  limits: Limits,
+  systemBoundaries: readonly number[] = [],
+): string {
   const items = compactionView(history);
   const recent = recentStart(items, limits.keepRecentTokens);
   let out = `## Index\n\n${items.length} messages, ~${itemTokens(items)} tokens.\n`;
@@ -49,7 +53,17 @@ export function compactIndex(history: readonly Item[], limits: Limits): string {
   rows.slice(0, recentRow).forEach((row, i) => {
     table.push([rowId(row), roleOf(row) + (alone[i] ? "*" : ""), String(itemTokens(row)), describeRow(row)]);
   });
-  return `${out}${tabulate(table)}\`\`\`\n`;
+  const units = compactionUnits(items, limits, systemBoundaries);
+  const unitLines = units.units.map(
+    (unit) => `${unit.id}: ${unit.from}-${unit.to}, ~${unit.tokens} tokens (${unit.kind})`,
+  );
+  const protectedLines = units.protectedRows.map((row) => `${row.id}: ${row.reason}`);
+  const unitSection = [
+    "Safe collapse units (use collapseUnits with a note):",
+    ...(unitLines.length > 0 ? unitLines : ["none"]),
+    ...(protectedLines.length > 0 ? ["Protected rows:", ...protectedLines] : []),
+  ].join("\n");
+  return `${out}${tabulate(table)}\`\`\`\n\n${unitSection}\n`;
 }
 
 /** Aligns all columns but the last, two spaces apart, like Go's tabwriter. */

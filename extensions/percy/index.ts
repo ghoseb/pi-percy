@@ -106,6 +106,12 @@ const compactParameters = Type.Object({
       { description: "compact: ranges of index ids (inclusive) to replace with a note" },
     ),
   ),
+  collapseUnits: Type.Optional(
+    Type.Array(
+      Type.Object({ id: Type.String(), note: Type.String({ description: "what still matters from this safe unit" }) }),
+      { description: "compact: safe unit ids from the index, each with a short note" },
+    ),
+  ),
 });
 
 const recallParameters = Type.Object({
@@ -133,6 +139,9 @@ function stringIds(args: unknown): unknown {
   const collapse = isUnknownArray(args["collapse"])
     ? args["collapse"].map((c) => (isRecord(c) ? { ...c, from: str(c["from"]), to: str(c["to"]) } : c))
     : undefined;
+  const collapseUnits = isUnknownArray(args["collapseUnits"])
+    ? args["collapseUnits"].map((unit) => (isRecord(unit) ? { ...unit, id: str(unit["id"]) } : unit))
+    : undefined;
   const trim = strings(args["trim"]);
   const ids = strings(args["ids"]);
   return {
@@ -140,6 +149,7 @@ function stringIds(args: unknown): unknown {
     ...(trim === undefined ? {} : { trim }),
     ...(ids === undefined ? {} : { ids }),
     ...(collapse === undefined ? {} : { collapse }),
+    ...(collapseUnits === undefined ? {} : { collapseUnits }),
   };
 }
 
@@ -341,7 +351,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
             customType: NUDGE_TYPE,
             content: [
               { type: "text", text: idleNudgeText(settings.idle.minutes) },
-              { type: "text", text: compactIndex(view.items, settings.limits) },
+              { type: "text", text: compactIndex(view.items, settings.limits, view.systemBoundaries) },
             ],
             display: true,
             details: { idle: true },
@@ -374,7 +384,8 @@ export function createPercyExtension(options: PercyOptions = {}) {
       executionMode: "sequential",
       execute(toolCallId, params, _signal, _onUpdate, ctx) {
         const view = currentView(ctx);
-        if (params.action === "index") return Promise.resolve(text(compactIndex(view.items, settings.limits)));
+        if (params.action === "index")
+          return Promise.resolve(text(compactIndex(view.items, settings.limits, view.systemBoundaries)));
         if (pending.size > 0) {
           throw new Error(
             "A compaction from this turn is waiting to be applied; compact again after the next response.",
@@ -383,6 +394,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
         const input = {
           ...(params.trim === undefined ? {} : { trim: params.trim }),
           ...(params.collapse === undefined ? {} : { collapse: params.collapse }),
+          ...(params.collapseUnits === undefined ? {} : { collapseUnits: params.collapseUnits }),
         };
         const result = compactRequest(view.items, settings.limits, input, { systemBoundaries: view.systemBoundaries });
         pending.set(toolCallId, compactionDrafts(view, result.compaction, result.edits, result));
@@ -432,7 +444,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
           const view = currentView(ctx);
           const command = parseDebugCommand(args, view.items, view.systemBoundaries);
           if (command.kind === "index") {
-            pi.appendEntry(INDEX_TYPE, { index: compactIndex(view.items, settings.limits) });
+            pi.appendEntry(INDEX_TYPE, { index: compactIndex(view.items, settings.limits, view.systemBoundaries) });
             return Promise.resolve();
           }
           // Commands cannot append context edits; turn_end does.
@@ -512,12 +524,13 @@ export function createPercyExtension(options: PercyOptions = {}) {
       if (changed) drafts.push({ type: "custom", customType: NUDGE_SETTINGS_TYPE, data: { at, step } });
       const previous = changed ? undefined : previousTokens(branch, event.messageEntryId);
       if (nudgeDue(tokens, previous, settings.nudge)) {
+        const view = currentView(ctx);
         drafts.push({
           type: "custom_message",
           customType: NUDGE_TYPE,
           content: [
             { type: "text", text: sizeLine(tokens) },
-            { type: "text", text: compactIndex(currentView(ctx).items, settings.limits) },
+            { type: "text", text: compactIndex(view.items, settings.limits, view.systemBoundaries) },
           ],
           display: true,
         });

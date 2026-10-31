@@ -87,10 +87,17 @@ export interface Collapse {
   note: string;
 }
 
+/** A safe collapse unit from the current compaction index. */
+export interface UnitCollapse {
+  id: string;
+  note: string;
+}
+
 /** The compact action's input, ids already normalized to strings. */
 export interface CompactInput {
   trim?: string[];
   collapse?: Collapse[];
+  collapseUnits?: UnitCollapse[];
 }
 
 export const COMPACT_TOOL = "compact_in_place";

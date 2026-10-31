@@ -12,7 +12,9 @@ const limits = (keepRecentTokens: number): Limits => ({ ...DEFAULT_LIMITS, keepR
 function table(index: string): string {
   const start = index.indexOf("```\n");
   assert.ok(start >= 0, index);
-  return index.slice(start + 4);
+  const end = index.indexOf("```\n", start + 4);
+  assert.ok(end >= 0, index);
+  return index.slice(start + 4, end + 4);
 }
 
 function rowIds(index: string): string[] {
@@ -73,6 +75,33 @@ test("index header", () => {
     compactIndex(history.slice(0, 2), limits(20_000)),
     "## Index\n\n2 messages, ~3 tokens.\nAll of it is recent, so nothing can be compacted yet.\n",
   );
+});
+
+test("index shows safe units and protected rows", () => {
+  const history: Item[] = [
+    user(1, "do it"),
+    assistant(2, "finished"),
+    {
+      from: 3,
+      to: 3,
+      message: {
+        role: "bashExecution",
+        command: "pwd",
+        output: "/tmp",
+        exitCode: 0,
+        cancelled: false,
+        truncated: false,
+        timestamp: 3,
+      },
+    },
+    user(4, x(400)),
+  ];
+  const index = compactIndex(history, limits(1));
+  assert.match(
+    index,
+    /Safe collapse units \(use collapseUnits with a note\):\nu1: 1-1, ~2 tokens \(single\)\nu2: 2-2, ~2 tokens \(single\)/,
+  );
+  assert.match(index, /Protected rows:\n3: cannot be compacted/);
 });
 
 // From Shelley's TestBuildCompactionOrphans.

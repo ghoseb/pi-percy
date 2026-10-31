@@ -1,6 +1,7 @@
 // Turning the agent's compact request into a record: the "linter".
 import { isEditable, isToolResult, isTrimmedOutput } from "./messages.ts";
 import { indexOfRow, itemTokens, orphanCall, orphanOutput, type Row, recentStart, rowId, splitRows } from "./rows.ts";
+import { aloneRows, compactionUnits } from "./units.ts";
 import {
   type Compaction,
   type CompactInput,
@@ -31,22 +32,7 @@ export const RETRY_GUIDANCE =
  * the task and its rules, and the agent tends to fold them into notes that
  * keep little of them.
  */
-export function collapsesAlone(it: Item): boolean {
-  if (it.note) return true;
-  switch (it.message.role) {
-    case "user":
-    case "branchSummary":
-    case "compactionSummary":
-      return true;
-    default:
-      return false;
-  }
-}
-
-/** For each row, whether a collapse may cover it only on its own. */
-export function aloneRows(rows: readonly Row[]): boolean[] {
-  return rows.map((row) => row.length === 1 && collapsesAlone(row[0]!));
-}
+export { collapsesAlone } from "./units.ts";
 
 /** The trims of a row's tool outputs not trimmed yet. */
 export function rowTrims(row: Row): Trim[] {
@@ -215,7 +201,31 @@ export function compactRequest(
   input: CompactInput,
   constraints: CompactionConstraints = {},
 ): CompactResult {
-  const compaction = buildCompaction(history, limits, input);
+  const unitSelections = input.collapseUnits ?? [];
+  const available = compactionUnits(history, limits, constraints.systemBoundaries);
+  const units = new Map(available.units.map((unit) => [unit.id, unit]));
+  const unitProblems: string[] = [];
+  const seenUnits = new Set<string>();
+  const selected = unitSelections.flatMap(({ id, note }) => {
+    if (seenUnits.has(id)) {
+      unitProblems.push(`collapse unit ${id}: listed twice`);
+      return [];
+    }
+    seenUnits.add(id);
+    const unit = units.get(id);
+    if (!unit) {
+      unitProblems.push(`collapse unit ${id}: unknown id; use ids from the index`);
+      return [];
+    }
+    return [{ from: unit.from, to: unit.to, note }];
+  });
+  if (unitProblems.length === 1) throw new Error(`${unitProblems[0]}. ${RETRY_GUIDANCE}`);
+  if (unitProblems.length > 1)
+    throw new Error(`${unitProblems.length} problems:\n- ${unitProblems.join("\n- ")}\n\n${RETRY_GUIDANCE}`);
+  const compaction = buildCompaction(history, limits, {
+    ...(input.trim === undefined ? {} : { trim: input.trim }),
+    collapse: [...(input.collapse ?? []), ...selected],
+  });
   const existingSystemProblems = invalidSystemBoundaries(history, constraints.systemBoundaries ?? []);
   const beforeHidingEvidence = applyCompaction(history, compaction, 0);
   const evidence = safeCompactionEvidence(
