@@ -155,30 +155,28 @@ function currentView(ctx: ExtensionContext): BranchView {
   return branchView(sm.getBranch(), sm.buildSessionProjection());
 }
 
-function isUnknownArray(value: unknown): value is readonly unknown[] {
-  return Array.isArray(value);
-}
+// The tool arguments that are lists of ids, and those that are lists of
+// objects with id fields.
+const ID_LISTS = ["trim", "ids"];
+const ID_FIELDS: Record<string, readonly string[]> = { collapse: ["from", "to"], collapseUnits: ["id"] };
 
-/** Models send ids as numbers or strings; the schema takes strings. */
+/** Models send ids as numbers or strings; the schemas take strings. */
 function stringIds(args: unknown): unknown {
   if (!isPlainObject(args)) return args;
   const str = (v: unknown) => (typeof v === "number" ? String(v) : v);
-  const strings = (v: unknown) => (isUnknownArray(v) ? v.map(str) : undefined);
-  const collapse = isUnknownArray(args["collapse"])
-    ? args["collapse"].map((c) => (isPlainObject(c) ? { ...c, from: str(c["from"]), to: str(c["to"]) } : c))
-    : undefined;
-  const collapseUnits = isUnknownArray(args["collapseUnits"])
-    ? args["collapseUnits"].map((unit) => (isPlainObject(unit) ? { ...unit, id: str(unit["id"]) } : unit))
-    : undefined;
-  const trim = strings(args["trim"]);
-  const ids = strings(args["ids"]);
-  return {
-    ...args,
-    ...(trim === undefined ? {} : { trim }),
-    ...(ids === undefined ? {} : { ids }),
-    ...(collapse === undefined ? {} : { collapse }),
-    ...(collapseUnits === undefined ? {} : { collapseUnits }),
-  };
+  const out: Record<string, unknown> = { ...args };
+  for (const name of ID_LISTS) {
+    const list = args[name];
+    if (Array.isArray(list)) out[name] = list.map(str);
+  }
+  for (const [name, fields] of Object.entries(ID_FIELDS)) {
+    const list = args[name];
+    if (!Array.isArray(list)) continue;
+    out[name] = list.map((v: unknown) =>
+      isPlainObject(v) ? { ...v, ...Object.fromEntries(fields.map((f) => [f, str(v[f])])) } : v,
+    );
+  }
+  return out;
 }
 
 const text = (t: string) => ({ content: [{ type: "text" as const, text: t }], details: undefined });
