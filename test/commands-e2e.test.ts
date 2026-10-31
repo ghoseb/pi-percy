@@ -31,10 +31,9 @@ async function until(cond: () => boolean, what: string, ms = 3000) {
   }
 }
 
-test("/percy:compact-in-place asks the agent to compact, turning the tool on", async () => {
+test("/percy:compact-in-place asks the agent to compact without changing tools", async () => {
   const h = await startHarness();
   try {
-    h.session.setActiveToolsByName(["echo", "recall"]);
     await h.send("hello");
     // A pi-percy command must also work when a loaded session has a system
     // prompt delta after an assistant message.
@@ -61,7 +60,7 @@ test("/percy:toggle-compaction controls compaction for this session", async () =
   try {
     assert.ok(h.session.getActiveToolNames().includes("compact_in_place"));
     await h.send(`/${TOGGLE_COMMAND}`);
-    assert.ok(!h.session.getActiveToolNames().includes("compact_in_place"));
+    assert.ok(h.session.getActiveToolNames().includes("compact_in_place"));
     assert.match(h.notifications.at(-1)?.message ?? "", /compaction disabled/);
 
     await h.send(`/${TOGGLE_COMMAND}`);
@@ -206,3 +205,37 @@ test("changing the nudge threshold nudges once at the new threshold", async () =
   assert.equal(await run(off, ["raised"]), 1, "nudged below a raised threshold");
   assert.equal(await run(low, ["lowered again"]), 2, "lowering again did not nudge");
 });
+
+// A tool change is a system prompt change, which pi records as a system
+// message mid-conversation. pi-percy's nudges, compactions, idle turns and
+// commands must leave the prompt the session started with.
+test("pi-percy never changes the system prompt or the tools", async () => {
+  const h = await startHarness({
+    limits: { keepRecentTokens: 1 },
+    nudge: { at: 1, step: 1 },
+    idle: { minutes: 0.002, minTokens: 1 },
+  });
+  try {
+    await h.send("hello");
+    await h.call("echo", { text: "OUTPUT ", times: 300 });
+    await h.send(`/${TOGGLE_COMMAND}`);
+    await h.send(`/${TOGGLE_COMMAND}`);
+    const before = h.requests.length;
+    await h.send(`/${COMPACT_COMMAND}`);
+    await until(() => h.requests.length > before && h.session.isIdle, "the compact request's run");
+    await h.call("compact_in_place", { action: "compact", collapse: [{ from: "9", to: "12", note: "echoed" }] });
+    await until(() => ofType(h, "custom_message", NUDGE_TYPE).some((e) => isIdle(e)), "an idle compaction turn");
+    await until(() => h.session.isIdle, "the idle run");
+    assert.ok(ofType(h, "custom", RECORD_TYPE).length >= 1, "a compaction applied");
+    const systems = h.session.sessionManager
+      .getBranch()
+      .filter((e: SessionEntry) => e.type === "message" && e.message.role === "system");
+    assert.equal(systems.length, 1, "only the initial system message");
+    for (const request of h.requests) assert.equal(request.filter((m) => m.role === "system").length, 1);
+  } finally {
+    h.dispose();
+  }
+});
+
+const isIdle = (e: SessionEntry) =>
+  e.type === "custom_message" && (e.details as { idle?: boolean } | undefined)?.idle === true;

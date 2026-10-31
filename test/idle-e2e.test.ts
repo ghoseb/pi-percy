@@ -5,7 +5,7 @@ import { test } from "node:test";
 import type { Message } from "@earendil-works/pi-ai";
 import type { SessionEntry, SessionManager } from "@earendil-works/pi-coding-agent";
 import { RECORD_TYPE } from "../extensions/percy/branch.ts";
-import { NUDGE_TYPE } from "../extensions/percy/types.ts";
+import { NUDGE_TYPE, TOGGLE_COMMAND } from "../extensions/percy/types.ts";
 import { dump, type Harness, startHarness } from "./harness.ts";
 
 const IDLE = { minutes: 0.002, minTokens: 1 };
@@ -128,7 +128,21 @@ test("a small context gets no idle compaction turn", async () => {
   }
 });
 
-test("no idle compaction while compact_in_place is off", async () => {
+test("no idle compaction while compaction is toggled off", async () => {
+  const h = await startHarness({ limits: { keepRecentTokens: 1 }, idle: IDLE });
+  try {
+    await h.send(`/${TOGGLE_COMMAND}`);
+    assert.ok(h.session.getActiveToolNames().includes("compact_in_place"));
+    await h.send("hello");
+    await h.send("again");
+    await sleep(400);
+    assert.equal(idleNudges(h).length, 0);
+  } finally {
+    h.dispose();
+  }
+});
+
+test("no idle compaction while compact_in_place is not active", async () => {
   const h = await startHarness({ limits: { keepRecentTokens: 1 }, idle: IDLE });
   try {
     h.session.setActiveToolsByName(["echo", "recall"]);

@@ -3,12 +3,13 @@
 // The agent compacts its own context with compact_in_place: "index" lists the
 // older part of the view, "compact" validates a request and queues its record
 // and context edits, which the turn_end handler appends before the next model
-// request. recall shows the originals. While compact_in_place is active, the
-// turn_end handler also nudges the agent with the context size and the index
-// (see nudge.ts), and a conversation left idle gets one compaction turn (see
-// idle.ts). The compact-in-place command asks the agent to compact; the
-// debug command is a testing aid. Settings come from the "percy" key of
-// pi's settings.json.
+// request. recall shows the originals. While compact_in_place is active and
+// compaction is not toggled off, the agent is also nudged with the context
+// size and the index (see nudge.ts), and a conversation left idle gets one
+// compaction turn (see idle.ts). pi-percy never changes the active tools: a
+// tool change is a system prompt change, which pi records mid-conversation.
+// The compact-in-place command asks the agent to compact; the debug command is
+// a testing aid. Settings come from the "percy" key of pi's settings.json.
 import { StringEnum } from "@earendil-works/pi-ai";
 import {
   calculateContextTokens,
@@ -229,6 +230,11 @@ export function createPercyExtension(options: PercyOptions = {}) {
   return function percy(pi: ExtensionAPI) {
     let settings = overlay(DEFAULT_SETTINGS, options.settings);
     let piSettings: PiSettings | undefined;
+    // /percy:toggle-compaction: nudges and idle compaction for this runtime.
+    let compactionEnabled = true;
+    // Shelley nudges and compacts when idle only while compact_in_place is
+    // enabled; in pi, while it is active.
+    const compacting = () => compactionEnabled && pi.getActiveTools().includes(COMPACT_TOOL);
     // The model last warned about (see lateNudgeWarning), to warn once per switch.
     let warnedModel: string | undefined;
     const checkModel = (ctx: ExtensionContext, model = ctx.model) => {
@@ -358,7 +364,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
       idleDeadline = undefined;
       try {
         if (generation !== idleGeneration) return;
-        if (!ctx.isIdle() || ctx.hasPendingMessages() || !pi.getActiveTools().includes(COMPACT_TOOL)) return;
+        if (!compacting() || !ctx.isIdle() || ctx.hasPendingMessages()) return;
         const view = currentView(ctx);
         if (!worthIdleCompaction(view.items, settings.limits, settings.idle.minTokens)) return;
         idleRun = true;
@@ -448,7 +454,6 @@ export function createPercyExtension(options: PercyOptions = {}) {
     pi.registerCommand(COMPACT_COMMAND, {
       description: "Ask the agent to compact its context in place (optional: what to keep)",
       handler: (args, ctx) => {
-        if (!pi.getActiveTools().includes(COMPACT_TOOL)) pi.setActiveTools([...pi.getActiveTools(), COMPACT_TOOL]);
         const instructions = args.trim();
         const request = instructions ? `${COMPACT_REQUEST}\n\n${instructions}` : COMPACT_REQUEST;
         // Queued behind a running turn, as Shelley queues it.
@@ -514,10 +519,8 @@ export function createPercyExtension(options: PercyOptions = {}) {
     pi.registerCommand(TOGGLE_COMMAND, {
       description: "Enable or disable pi-percy context compaction for this session",
       handler: (_args, ctx) => {
-        const tools = pi.getActiveTools();
-        const enabled = tools.includes(COMPACT_TOOL);
-        pi.setActiveTools(enabled ? tools.filter((tool) => tool !== COMPACT_TOOL) : [...tools, COMPACT_TOOL]);
-        ctx.ui.notify(`pi-percy: compaction ${enabled ? "disabled" : "enabled"} for this session`, "info");
+        compactionEnabled = !compactionEnabled;
+        ctx.ui.notify(`pi-percy: compaction ${compactionEnabled ? "enabled" : "disabled"} for this session`, "info");
         return Promise.resolve();
       },
     });
@@ -526,7 +529,11 @@ export function createPercyExtension(options: PercyOptions = {}) {
       description: "Show pi-percy compaction status without a model request",
       handler: (_args, ctx) => {
         const view = currentView(ctx);
-        const enabled = pi.getActiveTools().includes(COMPACT_TOOL);
+        const state = !pi.getActiveTools().includes(COMPACT_TOOL)
+          ? `${COMPACT_TOOL} is not active`
+          : compactionEnabled
+            ? "enabled"
+            : "disabled";
         const idle =
           settings.idle.minutes === 0
             ? "disabled"
@@ -538,7 +545,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
         const eligible = worthIdleCompaction(view.items, settings.limits, settings.idle.minTokens);
         ctx.ui.notify(
           [
-            `pi-percy: ${enabled ? "enabled" : "disabled"}`,
+            `pi-percy: ${state}`,
             `history: ~${itemTokens(view.items)} tokens`,
             `nudges: ~${settings.nudge.at} tokens, then every ~${settings.nudge.step}`,
             `idle: ${idle}; ${eligible ? "eligible" : `requires ~${settings.idle.minTokens} tokens and older history`}`,
@@ -568,7 +575,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
      * does not count, so lowering the threshold nudges right away.
      */
     function nudgeAfter(event: TurnEndEvent, ctx: ExtensionContext): SessionBoundaryDraft[] {
-      if (!pi.getActiveTools().includes(COMPACT_TOOL)) return [];
+      if (!compacting()) return [];
       const tokens = contextTokens(event.message);
       if (tokens === undefined) return [];
       const branch = ctx.sessionManager.getBranch();

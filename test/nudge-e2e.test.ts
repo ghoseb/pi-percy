@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { calculateContextTokens, type SessionEntry } from "@earendil-works/pi-coding-agent";
-import { NUDGE_TYPE } from "../extensions/percy/types.ts";
+import { NUDGE_TYPE, TOGGLE_COMMAND } from "../extensions/percy/types.ts";
 import { dump, type Harness, startHarness } from "./harness.ts";
 
 const nudges = (h: Harness) =>
@@ -89,13 +89,28 @@ test("no nudge right after a compaction; dropping below a level re-arms it", asy
   }
 });
 
-test("no nudges while compact_in_place is off", async () => {
+test("no nudges while compaction is toggled off", async () => {
+  const h = await startHarness({ nudge: { at: 1, step: 1 } });
+  try {
+    await h.send(`/${TOGGLE_COMMAND}`);
+    assert.ok(h.session.getActiveToolNames().includes("compact_in_place"));
+    await h.send("hello");
+    await h.send("again");
+    assert.equal(nudges(h).length, 0);
+  } finally {
+    h.dispose();
+  }
+});
+
+test("no nudges while compact_in_place is not active", async () => {
   const h = await startHarness({ nudge: { at: 1, step: 1 } });
   try {
     h.session.setActiveToolsByName(["echo", "recall"]);
     await h.send("hello");
     await h.send("again");
     assert.equal(nudges(h).length, 0);
+    // pi-percy does not turn its tool back on.
+    assert.ok(!h.session.getActiveToolNames().includes("compact_in_place"));
   } finally {
     h.dispose();
   }
