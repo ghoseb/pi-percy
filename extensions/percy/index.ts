@@ -371,12 +371,11 @@ export function createPercyExtension(options: PercyOptions = {}) {
       ctx.ui.notify("pi-percy: a compaction was not applied: the run ended before its turn boundary", "warning");
     });
     pi.on("agent_settled", (event, ctx) => {
-      cancelIdle();
-      if (idleRun) {
+      if (idleRun || event.aborted) {
         idleRun = false;
+        cancelIdle();
         return;
       }
-      if (event.aborted || settings.idle.minutes <= 0) return;
       armIdle(ctx);
     });
     pi.on("cache_warming_decision", () => (warmingStopped ? { action: "stop" } : undefined));
