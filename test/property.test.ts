@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import fc from "fast-check";
 import { compactionUnits } from "../extensions/percy/units.ts";
+import { resolveIds } from "../extensions/percy/recall.ts";
 import { buildCompaction } from "../extensions/percy/validate.ts";
 import { applyCompaction, editsBetween } from "../extensions/percy/view.ts";
+import { compactionView } from "../extensions/percy/view.ts";
 import { DEFAULT_LIMITS, type Item } from "../extensions/percy/types.ts";
-import { assistant, user } from "./fixtures.ts";
+import type { BranchView } from "../extensions/percy/branch.ts";
+import { assistant, nudge, user } from "./fixtures.ts";
 
 /** A test-only projection of pi context edits, independent of applyCompaction. */
 function projectEdits(items: readonly Item[], edits: ReturnType<typeof editsBetween>): Item[] {
@@ -70,6 +73,45 @@ test("generated context edits reproduce the compacted visible messages", () => {
         }
       },
     ),
+    { numRuns: 2_000 },
+  );
+});
+
+// Idempotence: completed compaction evidence is removed once, never causing
+// later projection passes to remove ordinary conversation messages.
+test("hiding generated compaction evidence is idempotent", () => {
+  fc.assert(
+    fc.property(fc.array(fc.boolean(), { minLength: 1, maxLength: 80 }), (isNudge) => {
+      const items: Item[] = isNudge.map((value, index) =>
+        value ? nudge(index + 1) : index % 2 === 0 ? assistant(index + 1, "work") : user(index + 1, "task"),
+      );
+      assert.deepEqual(visible(compactionView(compactionView(items))), visible(compactionView(items)));
+    }),
+    { numRuns: 2_000 },
+  );
+});
+
+// Recall equivalence: a note id always names exactly the raw span recorded
+// for that note, the same span a caller could request explicitly.
+test("generated note ids resolve to their recorded original range", () => {
+  fc.assert(
+    fc.property(fc.integer({ min: 1, max: 500 }), fc.integer({ min: 0, max: 50 }), (from, width) => {
+      const to = from + width;
+      const record = 9;
+      const view = {
+        count: to,
+        seqOf: new Map([
+          ["from", from],
+          ["to", to],
+        ]),
+        recordAt: (seq: number) =>
+          seq === record
+            ? ({ squishes: [{ from: "from", to: "to" }] } as ReturnType<BranchView["recordAt"]>)
+            : undefined,
+      } as unknown as BranchView;
+      assert.deepEqual(resolveIds(view, [`s${record}.0`]), [[from, to]]);
+      assert.deepEqual(resolveIds(view, [`${from}-${to}`]), [[from, to]]);
+    }),
     { numRuns: 2_000 },
   );
 });
