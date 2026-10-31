@@ -1,7 +1,16 @@
 // Applying a compaction to the model's view, and the context edits that make
 // pi show that view.
-import { hasToolCall, isEditable, isToolResult, noteText, toolCalls, trimmedText, withText } from "./messages.ts";
-import { type AgentMessage, type Compaction, COMPACT_TOOL, type Edit, type Item, NUDGE_TYPE } from "./types.ts";
+import {
+  hasToolCall,
+  isEditable,
+  isNudgeMessage,
+  isToolResult,
+  noteText,
+  toolCalls,
+  trimmedText,
+  withText,
+} from "./messages.ts";
+import { type AgentMessage, type Compaction, COMPACT_TOOL, type Edit, type Item } from "./types.ts";
 
 /**
  * Applies c, recorded as record number recordSeq, to items and returns the
@@ -213,7 +222,7 @@ export function compactionEvidence(items: readonly Item[]): { seqs: number[]; to
   for (const it of items) {
     if (it.note) continue;
     const m = it.message;
-    if (m.role === "custom" && m.customType === NUDGE_TYPE) seqs.push(it.from);
+    if (isNudgeMessage(m)) seqs.push(it.from);
     if (m.role === "toolResult") results.add(m.toolCallId);
   }
   const toolCallIds: string[] = [];

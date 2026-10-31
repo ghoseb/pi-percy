@@ -3,13 +3,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { SessionEntry, SessionManager } from "@earendil-works/pi-coding-agent";
-import { RECORD_TYPE } from "../extensions/percy/branch.ts";
+import { isNudgeEntry, isRecordEntry } from "../extensions/percy/branch.ts";
 import { COMPACT_REQUEST } from "../extensions/percy/index.ts";
 import { noteText } from "../extensions/percy/messages.ts";
 import {
   COMPACT_COMMAND,
   DEBUG_COMMAND,
-  NUDGE_TYPE,
   REWIND_COMMAND,
   STATUS_COMMAND,
   TOGGLE_COMMAND,
@@ -21,6 +20,8 @@ const ofType = (h: Harness, type: string, customType: string) =>
   h.session.sessionManager
     .getBranch()
     .filter((e: SessionEntry) => e.type === type && "customType" in e && e.customType === customType);
+
+const records = (h: Harness) => h.session.sessionManager.getBranch().filter(isRecordEntry);
 
 const lastRequest = (h: Harness) => dump(h.requests[h.requests.length - 1]!).join("\n");
 
@@ -97,20 +98,13 @@ test("/percy:rewind-compaction returns to before the newest compaction without a
       action: "compact",
       collapse: [{ from: String(greeting + 1), to: String(greeting + 1), note: "greeted" }],
     });
-    const record = h.session.sessionManager
-      .getBranch()
-      .findLast((entry) => entry.type === "custom" && entry.customType === RECORD_TYPE);
+    const record = h.session.sessionManager.getBranch().findLast(isRecordEntry);
     assert.ok(record?.parentId, "compaction was not recorded");
     const requests = h.requests.length;
 
     await h.send(`/${REWIND_COMMAND}`);
     assert.equal(h.session.sessionManager.getLeafId(), record.parentId);
-    assert.equal(
-      h.session.sessionManager
-        .getBranch()
-        .filter((entry) => entry.type === "custom" && entry.customType === RECORD_TYPE).length,
-      0,
-    );
+    assert.equal(h.session.sessionManager.getBranch().filter(isRecordEntry).length, 0);
     assert.equal(h.requests.length, requests, "undo must not request a model response");
     assert.match(h.notifications.at(-1)?.message ?? "", /rewound the branch/);
   } finally {
@@ -165,12 +159,11 @@ test("/percy:compact-debug shows the index and records squishes and trims", asyn
 
     await h.send(`/${DEBUG_COMMAND} trim ${callSeq}`);
     await h.send(`/${DEBUG_COMMAND} squish ${greetingSeq}-${greetingSeq} The user  said hello.`);
-    assert.equal(ofType(h, "custom", RECORD_TYPE).length, 0, "applied before a turn boundary");
+    assert.equal(records(h).length, 0, "applied before a turn boundary");
     await h.send("first");
-    const records = ofType(h, "custom", RECORD_TYPE);
-    assert.equal(records.length, 2);
-    const squish = records[1]!.type === "custom" ? (records[1].data as { squishes: { summary: string }[] }) : undefined;
-    assert.equal(squish?.squishes[0]?.summary, "The user  said hello.");
+    const recorded = records(h);
+    assert.equal(recorded.length, 2);
+    assert.equal(recorded[1]!.data?.squishes[0]?.summary, "The user  said hello.");
 
     await h.send("second");
     const request = lastRequest(h);
@@ -193,7 +186,7 @@ test("changing the nudge threshold nudges once at the new threshold", async () =
     sm = h.session.sessionManager;
     try {
       for (const p of prompts) await h.send(p);
-      return ofType(h, "custom_message", NUDGE_TYPE).length;
+      return h.session.sessionManager.getBranch().filter((e) => isNudgeEntry(e)).length;
     } finally {
       h.dispose();
     }
@@ -228,9 +221,12 @@ test("pi-percy never changes the system prompt or the tools", async () => {
       .findIndex((e: SessionEntry) => e.type === "message" && e.message.role === "toolResult");
     await h.call("compact_in_place", { action: "compact", trim: [String(callSeq)] });
     assert.equal(h.lastToolResult().isError, false, h.lastToolResult().text);
-    await until(() => ofType(h, "custom_message", NUDGE_TYPE).some((e) => isIdle(e)), "an idle compaction turn");
+    await until(
+      () => h.session.sessionManager.getBranch().some((e) => isNudgeEntry(e, "idle")),
+      "an idle compaction turn",
+    );
     await until(() => h.session.isIdle, "the idle run");
-    assert.ok(ofType(h, "custom", RECORD_TYPE).length >= 1, "a compaction applied");
+    assert.ok(records(h).length >= 1, "a compaction applied");
     const systems = h.session.sessionManager
       .getBranch()
       .filter((e: SessionEntry) => e.type === "message" && e.message.role === "system");
@@ -240,6 +236,3 @@ test("pi-percy never changes the system prompt or the tools", async () => {
     h.dispose();
   }
 });
-
-const isIdle = (e: SessionEntry) =>
-  e.type === "custom_message" && (e.details as { idle?: boolean } | undefined)?.idle === true;

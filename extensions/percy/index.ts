@@ -27,7 +27,15 @@ import {
   truncateHead,
 } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "typebox";
-import { type BranchView, branchView, compactionDrafts, RECORD_TYPE, type StoredCompaction } from "./branch.ts";
+import {
+  type BranchView,
+  branchView,
+  compactionDrafts,
+  isNudgeEntry,
+  isRecordEntry,
+  RECORD_TYPE,
+  type StoredCompaction,
+} from "./branch.ts";
 import { debugCompletions, DEBUG_USAGE, parseDebugCommand } from "./debug.ts";
 import { idleNudgeText, worthIdleCompaction } from "./idle.ts";
 import { compactIndex } from "./index-render.ts";
@@ -42,6 +50,7 @@ import {
   COMPACT_TOOL,
   DEBUG_COMMAND,
   NUDGE_TYPE,
+  type NudgeDetails,
   RECALL_TOOL,
   REWIND_COMMAND,
   STATUS_COMMAND,
@@ -197,7 +206,7 @@ function decidedTokens(branch: readonly SessionEntry[], end: number): number | u
   let undecided = false;
   for (let i = end - 1; i >= 0; i--) {
     const e = branch[i]!;
-    if (e.type === "custom" && (e.customType === RECORD_TYPE || e.customType === NUDGE_DEFERRED_TYPE)) undecided = true;
+    if (isRecordEntry(e) || (e.type === "custom" && e.customType === NUDGE_DEFERRED_TYPE)) undecided = true;
     const n = entryTokens(e);
     if (n === undefined) continue;
     if (!undecided) return n;
@@ -205,11 +214,6 @@ function decidedTokens(branch: readonly SessionEntry[], end: number): number | u
   }
   return undefined;
 }
-
-const isNudge = (e: SessionEntry, idle: boolean) =>
-  e.type === "custom_message" &&
-  e.customType === NUDGE_TYPE &&
-  ((e.details as { idle?: boolean } | undefined)?.idle === true) === idle;
 
 /** The nudge settings last recorded on branch, if any. */
 function recordedNudge(branch: readonly SessionEntry[]): NudgeSettings | undefined {
@@ -310,7 +314,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
         const entry = branch[i]!;
         if (entry.type === "message" && entry.message.role === "user") return false;
         // A context nudge can follow the idle nudge in the idle run.
-        if (isNudge(entry, true)) return true;
+        if (isNudgeEntry(entry, "idle")) return true;
       }
       return false;
     }
@@ -502,9 +506,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
           return;
         }
         const branch = ctx.sessionManager.getBranch();
-        const record = [...branch]
-          .reverse()
-          .find((entry) => entry.type === "custom" && entry.customType === RECORD_TYPE);
+        const record = branch.findLast(isRecordEntry);
         if (!record?.parentId) {
           ctx.ui.notify("pi-percy: no compaction on this branch to undo", "warning");
           return;
@@ -570,7 +572,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
     pi.registerEntryRenderer<{ index: string }>(INDEX_TYPE, (entry, { expanded }, theme) =>
       renderIndex(entry, expanded, theme),
     );
-    pi.registerMessageRenderer<{ idle?: boolean } | undefined>(NUDGE_TYPE, (message, { expanded, outputPad }, theme) =>
+    pi.registerMessageRenderer<NudgeDetails>(NUDGE_TYPE, (message, { expanded, outputPad }, theme) =>
       renderNudge(message, expanded, outputPad, theme),
     );
 
@@ -648,7 +650,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
       if (index < 0) return;
       // Decided at its turn's end: a nudge was sent, or the turn compacted.
       const later = branch.slice(index + 1);
-      if (later.some((e) => isNudge(e, false) || (e.type === "custom" && e.customType === RECORD_TYPE))) return;
+      if (later.some((e) => isNudgeEntry(e, "context") || isRecordEntry(e))) return;
       const { record, nudge } = nudgeDecision(ctx, branch, index, entryTokens(branch[index]!)!);
       if (record) pi.appendEntry(NUDGE_SETTINGS_TYPE, record);
       if (nudge) return { message: { customType: NUDGE_TYPE, content: nudge, display: true } };

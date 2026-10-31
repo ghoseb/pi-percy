@@ -20,6 +20,7 @@ import {
   TruncatedText,
 } from "@earendil-works/pi-tui";
 import type { StoredCompaction } from "./branch.ts";
+import type { NudgeDetails } from "./types.ts";
 
 type CustomMessage<T = unknown> = Parameters<MessageRenderer<T>>[0];
 
@@ -186,7 +187,7 @@ function textOf(content: CustomMessage["content"]): string {
 
 /** A context nudge: the size or idle line, and the index it carried. */
 export function renderNudge(
-  message: CustomMessage<{ idle?: boolean } | undefined>,
+  message: CustomMessage<NudgeDetails>,
   expanded: boolean,
   outputPad: number,
   theme: Theme,

@@ -3,16 +3,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { calculateContextTokens, type SessionEntry } from "@earendil-works/pi-coding-agent";
-import { NUDGE_TYPE, TOGGLE_COMMAND } from "../extensions/percy/types.ts";
+import { isNudgeEntry } from "../extensions/percy/branch.ts";
+import { TOGGLE_COMMAND } from "../extensions/percy/types.ts";
 import { dump, type Harness, startHarness } from "./harness.ts";
 
-const nudges = (h: Harness) =>
-  h.session.sessionManager
-    .getBranch()
-    .filter(
-      (e): e is Extract<SessionEntry, { type: "custom_message" }> =>
-        e.type === "custom_message" && e.customType === NUDGE_TYPE,
-    );
+const nudges = (h: Harness) => h.session.sessionManager.getBranch().filter((e) => isNudgeEntry(e));
 
 const nudgeText = (e: Extract<SessionEntry, { type: "custom_message" }>) =>
   typeof e.content === "string" ? e.content : e.content.map((c) => (c.type === "text" ? c.text : "")).join("\n");
@@ -30,7 +25,7 @@ const lastRequest = (h: Harness) => dump(h.requests[h.requests.length - 1]!).joi
 /** Roles and nudges on the branch, in order: "user:<text>", "assistant", "nudge", ... */
 const order = (h: Harness) =>
   h.session.sessionManager.getBranch().flatMap((e) => {
-    if (e.type === "custom_message" && e.customType === NUDGE_TYPE) return ["nudge"];
+    if (isNudgeEntry(e)) return ["nudge"];
     if (e.type !== "message" || e.message.role === "system") return [];
     return [e.message.role === "user" ? `user:${dump([e.message])[0]!.slice(6, 30)}` : e.message.role];
   });

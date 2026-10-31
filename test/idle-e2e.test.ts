@@ -3,9 +3,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Message } from "@earendil-works/pi-ai";
-import type { SessionEntry, SessionManager } from "@earendil-works/pi-coding-agent";
-import { RECORD_TYPE } from "../extensions/percy/branch.ts";
-import { NUDGE_TYPE, TOGGLE_COMMAND } from "../extensions/percy/types.ts";
+import type { SessionManager } from "@earendil-works/pi-coding-agent";
+import { isNudgeEntry, isRecordEntry } from "../extensions/percy/branch.ts";
+import { TOGGLE_COMMAND } from "../extensions/percy/types.ts";
 import { anthropicRequestWire, misplacedSystemMessages } from "./anthropic-wire.ts";
 import { dump, type Harness, startHarness } from "./harness.ts";
 
@@ -22,16 +22,9 @@ async function until(cond: () => boolean, what: string, ms = 3000) {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-const idleNudges = (h: Harness) =>
-  h.session.sessionManager
-    .getBranch()
-    .filter(
-      (e: SessionEntry) =>
-        e.type === "custom_message" && e.customType === NUDGE_TYPE && (e.details as { idle?: boolean })?.idle === true,
-    );
+const idleNudges = (h: Harness) => h.session.sessionManager.getBranch().filter((e) => isNudgeEntry(e, "idle"));
 
-const records = (h: Harness) =>
-  h.session.sessionManager.getBranch().filter((e) => e.type === "custom" && e.customType === RECORD_TYPE);
+const records = (h: Harness) => h.session.sessionManager.getBranch().filter(isRecordEntry);
 
 function lastText(messages: Message[]): string {
   const m = messages[messages.length - 1];
@@ -128,12 +121,9 @@ test("an idle run with a context nudge stays blocked after resume", async () => 
     await first.call("echo", { text: "OUTPUT ", times: 300 });
     await until(() => records(first).length === 1 && first.session.isIdle, "the idle compaction");
     const branch = first.session.sessionManager.getBranch();
-    const idle = branch.findIndex((e) => idleNudges(first).includes(e));
+    const idle = branch.findIndex((e) => isNudgeEntry(e, "idle"));
     const next = branch[idle + 1];
-    assert.ok(
-      next?.type === "custom_message" && next.customType === NUDGE_TYPE,
-      "a context nudge after the idle nudge",
-    );
+    assert.ok(next && isNudgeEntry(next, "context"), "a context nudge after the idle nudge");
     manager = first.session.sessionManager;
   } finally {
     first.dispose();

@@ -109,6 +109,8 @@ export const TOGGLE_COMMAND = "percy:toggle-compaction";
 export const STATUS_COMMAND = "percy:status";
 /** customType of context nudges (size and idle), hidden by compacting. */
 export const NUDGE_TYPE = "percy-nudge";
+/** A nudge's details: an idle nudge says so. */
+export type NudgeDetails = { idle?: boolean } | undefined;
 
 export function emptyCompaction(): Compaction {
   return { squishes: [], trims: [], hiddenSeqs: [], hiddenToolCallIds: [] };

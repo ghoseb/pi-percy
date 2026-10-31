@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { RECORD_TYPE } from "../extensions/percy/branch.ts";
+import { isRecordEntry } from "../extensions/percy/branch.ts";
 import { noteText, trimmedText } from "../extensions/percy/messages.ts";
 import { dump, GREETING, type Harness, startHarness } from "./harness.ts";
 
@@ -20,8 +20,7 @@ const isCall = (text: string) => (e: SessionEntry) =>
   e.message.role === "assistant" &&
   e.message.content.some((c) => c.type === "toolCall" && JSON.stringify(c.arguments).includes(text));
 
-const records = (h: Harness) =>
-  h.session.sessionManager.getBranch().filter((e) => e.type === "custom" && e.customType === RECORD_TYPE).length;
+const records = (h: Harness) => h.session.sessionManager.getBranch().filter(isRecordEntry).length;
 
 // Port of Shelley's TestCompactInPlaceEndToEnd: the index lists the view,
 // invalid requests come back as tool errors, and a valid one compacts the

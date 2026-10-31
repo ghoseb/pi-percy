@@ -26,10 +26,10 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import fc from "fast-check";
 import { Type } from "typebox";
-import { branchView, RECORD_TYPE, type StoredCompaction } from "../extensions/percy/branch.ts";
+import { branchView, isNudgeEntry, isRecordEntry, type StoredCompaction } from "../extensions/percy/branch.ts";
 import type { Timers } from "../extensions/percy/index.ts";
 import { resolveIds } from "../extensions/percy/recall.ts";
-import { NUDGE_TYPE, TOGGLE_COMMAND } from "../extensions/percy/types.ts";
+import { TOGGLE_COMMAND } from "../extensions/percy/types.ts";
 import { systemBoundaryViolations } from "../extensions/percy/view.ts";
 import { anthropicRequestWire, anthropicWire, misplacedSystemMessages, type WireMessage } from "./anthropic-wire.ts";
 import { type Harness, startHarness } from "./harness.ts";
@@ -303,14 +303,6 @@ const respond = (world: World) => async (messages: Message[]) => {
 
 // --- Invariants.
 
-const isContextNudge = (e: SessionEntry) =>
-  e.type === "custom_message" && e.customType === NUDGE_TYPE && !isIdleNudge(e);
-
-const isIdleNudge = (e: SessionEntry) =>
-  e.type === "custom_message" &&
-  e.customType === NUDGE_TYPE &&
-  (e.details as { idle?: boolean } | undefined)?.idle === true;
-
 /** Wire indices of tool calls without their results in the next message. */
 function unpairedToolUses(wire: readonly WireMessage[]): string[] {
   const bad: string[] = [];
@@ -405,11 +397,11 @@ async function checkSession(h: Harness, world: World, checked: Checked) {
   let afterRecord = false;
   let idleSinceUser = 0;
   for (const e of branch) {
-    if (e.type === "custom" && e.customType === RECORD_TYPE) afterRecord = true;
+    if (isRecordEntry(e)) afterRecord = true;
     if (e.type === "message" && e.message.role === "assistant") afterRecord = false;
     if (e.type === "message" && e.message.role === "user") idleSinceUser = 0;
-    if (isIdleNudge(e)) idleSinceUser++;
-    else if (e.type === "custom_message" && e.customType === NUDGE_TYPE) {
+    if (isNudgeEntry(e, "idle")) idleSinceUser++;
+    else if (isNudgeEntry(e, "context")) {
       assert.ok(!afterRecord, `context nudge ${e.id} right after a compaction`);
     }
     assert.ok(idleSinceUser <= 1, "a second idle run without new input");
@@ -421,7 +413,7 @@ async function checkSession(h: Harness, world: World, checked: Checked) {
   // request, so those can come between, and a /tree jump to one of them
   // continues the branch from there.
   branch.forEach((e, i) => {
-    if (!isContextNudge(e)) return;
+    if (!isNudgeEntry(e, "context")) return;
     const rest = branch.slice(i);
     const n = rest.findIndex(
       (x, k) =>
@@ -469,8 +461,7 @@ async function settle(h: Harness) {
   }
 }
 
-const records = (branch: readonly SessionEntry[]) =>
-  branch.filter((e) => e.type === "custom" && e.customType === RECORD_TYPE);
+const records = (branch: readonly SessionEntry[]) => branch.filter(isRecordEntry);
 
 /** Runs one action; returns the harness to use next (resume replaces it). */
 async function run(h: Harness, world: World, a: Action): Promise<Harness> {
@@ -666,14 +657,13 @@ async function runActions(actions: readonly Action[]) {
       }
     }
     const branch = h.session.sessionManager.getBranch();
-    const nudges = branch.filter((e) => e.type === "custom_message" && e.customType === NUDGE_TYPE);
     count("actions", actions.length);
     count("requests checked", checked.requests);
     count("pi compactions on final branch", branch.filter((e) => e.type === "compaction").length);
     count("branch summaries on final branch", branch.filter((e) => e.type === "branch_summary").length);
     count("records on final branch", records(branch).length);
-    count("idle nudges on final branch", nudges.filter(isIdleNudge).length);
-    count("context nudges on final branch", nudges.filter((e) => !isIdleNudge(e)).length);
+    count("idle nudges on final branch", branch.filter((e) => isNudgeEntry(e, "idle")).length);
+    count("context nudges on final branch", branch.filter((e) => isNudgeEntry(e, "context")).length);
     count(
       "system messages on final branch",
       branch.filter((e) => e.type === "message" && e.message.role === "system").length,

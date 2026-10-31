@@ -1,6 +1,6 @@
 // Helpers over pi's AgentMessage shapes, and the texts compaction puts in
 // the view in place of what it removed.
-import { type AgentMessage, RECALL_TOOL } from "./types.ts";
+import { type AgentMessage, NUDGE_TYPE, RECALL_TOOL } from "./types.ts";
 
 type ToolCall = Extract<Extract<AgentMessage, { role: "assistant" }>["content"][number], { type: "toolCall" }>;
 
@@ -15,6 +15,11 @@ export function hasToolCall(m: AgentMessage): boolean {
 
 export function isToolResult(m: AgentMessage): boolean {
   return m.role === "toolResult";
+}
+
+/** Reports whether m is a nudge, context or idle. */
+export function isNudgeMessage(m: AgentMessage): boolean {
+  return m.role === "custom" && m.customType === NUDGE_TYPE;
 }
 
 const EDITABLE_ROLES = ["user", "assistant", "toolResult", "custom"] as const;

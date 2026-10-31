@@ -1,12 +1,33 @@
 // The bridge between a pi session branch and the core view: message numbers,
 // stored compaction records, and the session entries that realize a
 // compaction.
-import type { SessionBoundaryDraft, SessionEntry, SessionProjection } from "@earendil-works/pi-coding-agent";
+import type {
+  CustomEntry,
+  CustomMessageEntry,
+  SessionBoundaryDraft,
+  SessionEntry,
+  SessionProjection,
+} from "@earendil-works/pi-coding-agent";
 import { noteText } from "./messages.ts";
-import type { AgentMessage, Compaction, Edit, Item } from "./types.ts";
+import { type AgentMessage, type Compaction, type Edit, type Item, type NudgeDetails, NUDGE_TYPE } from "./types.ts";
 
 /** customType of the custom entry that records a compaction. */
 export const RECORD_TYPE = "percy-compaction";
+
+/** Reports whether e records a compaction. */
+export function isRecordEntry(e: SessionEntry): e is CustomEntry<StoredCompaction> {
+  return e.type === "custom" && e.customType === RECORD_TYPE;
+}
+
+/**
+ * Reports whether e is a nudge of the given kind, or of either kind when none
+ * is given. An idle nudge says so in its details.
+ */
+export function isNudgeEntry(e: SessionEntry, kind?: "context" | "idle"): e is CustomMessageEntry<NudgeDetails> {
+  if (e.type !== "custom_message" || e.customType !== NUDGE_TYPE) return false;
+  const idle = (e.details as NudgeDetails)?.idle === true;
+  return kind === undefined || idle === (kind === "idle");
+}
 
 /**
  * A compaction as stored in a custom entry: by entry id. Message numbers
@@ -60,8 +81,8 @@ export function branchView(branch: readonly SessionEntry[], projection: SessionP
   const notes = new Map<string, { from: number; to: number; id: string; summary: string }>();
   const records = new Map<number, StoredCompaction>();
   numbered.forEach((e, i) => {
-    if (e.type !== "custom" || e.customType !== RECORD_TYPE) return;
-    const record = e.data as StoredCompaction;
+    if (!isRecordEntry(e)) return;
+    const record = e.data!;
     records.set(i + 1, record);
     record.squishes.forEach((s, n) => {
       notes.set(s.from, { from: seq(s.from), to: seq(s.to), id: `s${i + 1}.${n}`, summary: s.summary });
