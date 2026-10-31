@@ -35,14 +35,6 @@ function problemsError(problems: readonly string[]): Error {
   return new Error(`${problems.length} problems:\n- ${problems.join("\n- ")}\n\n${RETRY_GUIDANCE}`);
 }
 
-/**
- * Reports whether a collapse may cover it only on its own: a message from the
- * user, a note from an earlier compaction, or a summary pi wrote. They carry
- * the task and its rules, and the agent tends to fold them into notes that
- * keep little of them.
- */
-export { collapsesAlone } from "./units.ts";
-
 /** The trims of a row's tool outputs not trimmed yet. */
 export function rowTrims(row: Row): Trim[] {
   const trims: Trim[] = [];

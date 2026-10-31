@@ -26,7 +26,12 @@ export interface CompactionUnits {
   protectedRows: ProtectedRow[];
 }
 
-/** Whether a row must be collapsed by itself to preserve its meaning. */
+/**
+ * Reports whether a collapse may cover item only on its own: a message from
+ * the user, a note from an earlier compaction, or a summary pi wrote. They
+ * carry the task and its rules, and the agent tends to fold them into notes
+ * that keep little of them.
+ */
 export function collapsesAlone(item: Item): boolean {
   if (item.note) return true;
   return (

@@ -3,7 +3,8 @@ import { test } from "node:test";
 import { trimmedText } from "../extensions/percy/messages.ts";
 import { recentStart } from "../extensions/percy/rows.ts";
 import { type CompactInput, type Collapse, DEFAULT_LIMITS, type Item, type Limits } from "../extensions/percy/types.ts";
-import { buildCompaction, collapsesAlone, compactRequest, RETRY_GUIDANCE } from "../extensions/percy/validate.ts";
+import { collapsesAlone } from "../extensions/percy/units.ts";
+import { buildCompaction, compactRequest, RETRY_GUIDANCE } from "../extensions/percy/validate.ts";
 import { applyCompaction } from "../extensions/percy/view.ts";
 import { assistant, call, compactCall, custom, nudge, output, spans, textOf, user, x } from "./fixtures.ts";
 
