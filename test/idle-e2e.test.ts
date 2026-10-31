@@ -51,7 +51,7 @@ function compactOnIdle(messages: Message[]) {
 
 test("an idle conversation gets one compaction turn", async () => {
   const h = await startHarness(
-    { limits: { keepRecentTokens: 1 }, nudge: { at: 1e9 }, idle: IDLE, minCompactionSavingsTokens: 0 },
+    { limits: { keepRecentTokens: 1 }, nudge: { at: 1e9 }, idle: IDLE },
     { respond: compactOnIdle },
   );
   try {

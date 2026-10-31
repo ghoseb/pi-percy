@@ -173,14 +173,6 @@ test("compactRequest expands a safe collapse unit", () => {
   assert.deepEqual(result.compaction.squishes, [{ from: 2, to: 4, summary: "Completed the old task." }]);
 });
 
-test("compactRequest rejects a small automatic rewrite before it applies", () => {
-  const history = [assistant(1, x(400)), assistant(2, x(400))];
-  assert.throws(
-    () => compactRequest(history, limits(1), { collapse: [col("1", "1", "old work")] }, { minSavingsTokens: 500 }),
-    /saves only ~\d+ tokens; automatic compaction requires at least ~500/,
-  );
-});
-
 // Port of Shelley's TestBuildCompactionRetryPreservesNotes.
 test("retry guidance asks to preserve notes", () => {
   const note = "Repeated push: everything up to date.\nIndex size 256: 12,906 ns → 6,237 ns.";

@@ -189,8 +189,6 @@ export interface CompactResult {
 export interface CompactionConstraints {
   /** Retained Pi system-message positions, which compaction must not make invalid. */
   systemBoundaries?: readonly number[];
-  /** Minimum estimated saving required before an automatic rewrite. */
-  minSavingsTokens?: number;
 }
 
 /**
@@ -245,12 +243,6 @@ export function compactRequest(
   const tokensBefore = itemTokens(history);
   const tokensAfter = itemTokens(after);
   const tokensSaved = tokensBefore - tokensAfter;
-  if (constraints.minSavingsTokens !== undefined && tokensSaved < constraints.minSavingsTokens) {
-    throw new Error(
-      `This compaction saves only ~${tokensSaved} tokens; automatic compaction requires at least ~${constraints.minSavingsTokens}. ` +
-        `Select more safe units from the index and send one combined request. ${RETRY_GUIDANCE}`,
-    );
-  }
   const remainingUnits = compactionUnits(after, limits, constraints.systemBoundaries).units.length;
   return {
     compaction,

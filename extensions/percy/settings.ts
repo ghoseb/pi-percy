@@ -10,14 +10,12 @@ export interface PercySettings {
   limits: Limits;
   nudge: NudgeSettings;
   idle: IdleSettings;
-  minCompactionSavingsTokens: number;
 }
 
 export const DEFAULT_SETTINGS: PercySettings = {
   limits: DEFAULT_LIMITS,
   nudge: DEFAULT_NUDGE,
   idle: DEFAULT_IDLE,
-  minCompactionSavingsTokens: 50_000,
 };
 
 /** The keys of the "percy" object, and where each lands. */
@@ -28,7 +26,6 @@ const KEYS = {
   maxCollapseTokens: (s: PercySettings, n: number) => (s.limits = { ...s.limits, maxCollapseTokens: n }),
   idleMinutes: (s: PercySettings, n: number) => (s.idle = { ...s.idle, minutes: n }),
   idleMinTokens: (s: PercySettings, n: number) => (s.idle = { ...s.idle, minTokens: n }),
-  minCompactionSavingsTokens: (s: PercySettings, n: number) => (s.minCompactionSavingsTokens = n),
 } as const;
 
 /** Keys whose value must be positive; the others may be 0. */
