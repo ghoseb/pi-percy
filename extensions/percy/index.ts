@@ -70,7 +70,23 @@ export interface PercyOptions {
    * and pi's compaction settings. Defaults to pi's settings.json files.
    */
   piSettings?: (ctx: ExtensionContext) => PiSettings;
+  /** Schedules the idle timer. Defaults to setTimeout, for tests to fire it. */
+  timers?: Timers;
 }
+
+/** A one-shot timer: set returns the function that cancels it. */
+export interface Timers {
+  set(callback: () => void, ms: number): () => void;
+}
+
+/** Real timers, which do not keep pi from exiting. */
+const realTimers: Timers = {
+  set(callback, ms) {
+    const timer = setTimeout(callback, ms);
+    timer.unref?.();
+    return () => clearTimeout(timer);
+  },
+};
 
 const COMPACT_DESCRIPTION = [
   "Selectively compact this conversation's older context.",
@@ -270,7 +286,8 @@ export function createPercyExtension(options: PercyOptions = {}) {
     // cancels it and makes the run an ordinary one. After an idle
     // compaction, pi's idle cache warming stops until new input: the
     // conversation is idle, and the compacted context is a new cache entry.
-    let idleTimer: ReturnType<typeof setTimeout> | undefined;
+    const timers = options.timers ?? realTimers;
+    let cancelIdleTimer: (() => void) | undefined;
     let idleDeadline: number | undefined;
     // Invalidates a callback that was queued as a timer was cancelled.
     let idleGeneration = 0;
@@ -278,8 +295,8 @@ export function createPercyExtension(options: PercyOptions = {}) {
     let warmingStopped = false;
     const cancelIdle = () => {
       idleGeneration++;
-      clearTimeout(idleTimer);
-      idleTimer = undefined;
+      cancelIdleTimer?.();
+      cancelIdleTimer = undefined;
       idleDeadline = undefined;
     };
 
@@ -302,9 +319,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
       const generation = idleGeneration;
       const wait = settings.idle.minutes * 60_000;
       idleDeadline = Date.now() + wait;
-      idleTimer = setTimeout(() => startIdleCompaction(ctx, generation), wait);
-      // An idle timer must not keep pi from exiting.
-      idleTimer.unref?.();
+      cancelIdleTimer = timers.set(() => startIdleCompaction(ctx, generation), wait);
     }
 
     pi.on("session_start", (_event, ctx) => {
@@ -352,7 +367,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
 
     /** Starts the idle compaction turn, if the conversation is still idle and worth it. */
     function startIdleCompaction(ctx: ExtensionContext, generation: number) {
-      idleTimer = undefined;
+      cancelIdleTimer = undefined;
       idleDeadline = undefined;
       try {
         if (generation !== idleGeneration) return;

@@ -2,7 +2,7 @@
 // model, for end-to-end tests. The faux model is scripted on the last message
 // of each request: a user message "call <tool> <json args>" makes it call that
 // tool, and "calls [[tool, args], ...]" makes parallel calls; "hello" gets
-// GREETING; anything else gets the reply "ok".
+// GREETING; "fail" gets a provider error; anything else gets the reply "ok".
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,9 +19,13 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { createPercyExtension, type PercyOptions } from "../extensions/percy/index.ts";
+import { createPercyExtension, type PercyOptions, type Timers } from "../extensions/percy/index.ts";
 
 export const GREETING = "Well, hi there! What shall we work on today?";
+
+// Tool call ids are unique across harnesses, as a provider's are: a resumed
+// session continues with new ids.
+let calls = 0;
 
 export interface Harness {
   session: AgentSession;
@@ -122,6 +126,12 @@ export interface HarnessOptions {
   sessionManager?: SessionManager;
   /** Result returned by confirmation dialogs. Defaults to approval. */
   confirm?: boolean;
+  /** More extensions, loaded after pi-percy. */
+  extensions?: ExtensionFactory[];
+  /** pi-percy's idle timer. Defaults to real timers. */
+  timers?: Timers;
+  /** The session's working and agent directory. Defaults to a new temporary one. */
+  dir?: string;
 }
 
 /** Starts a session with pi-percy on its defaults, overridden by settings; pi's settings.json files are not read. */
@@ -130,10 +140,9 @@ export async function startHarness(
   harness: HarnessOptions = {},
 ): Promise<Harness> {
   const contextWindow = harness.contextWindow ?? 1_000_000;
-  const dir = mkdtempSync(join(tmpdir(), "percy-test-"));
+  const dir = harness.dir ?? mkdtempSync(join(tmpdir(), "percy-test-"));
   const faux = fauxProvider({ provider: "faux", models: [{ id: "faux", contextWindow }] });
   const requests: Message[][] = [];
-  let calls = 0;
   const respond = (ctx: { messages: Message[] }) => {
     requests.push(structuredClone(ctx.messages));
     // The script answers the message before a context nudge, which pi-percy
@@ -151,6 +160,9 @@ export async function startHarness(
       return fauxAssistantMessage(list.map(([name, args]) => fauxToolCall(name, args, { id: `call${++calls}` })));
     }
     if (last?.role === "user" && textOf(last) === "hello") return fauxAssistantMessage(fauxText(GREETING));
+    if (last?.role === "user" && textOf(last) === "fail") {
+      return fauxAssistantMessage([], { stopReason: "error", errorMessage: "faux provider failure" });
+    }
     return fauxAssistantMessage(fauxText("ok"));
   };
   faux.setResponses(Array.from({ length: 1000 }, () => respond));
@@ -167,7 +179,12 @@ export async function startHarness(
       (pi) => pi.registerProvider(faux.provider),
       honestUsage,
       echoTool,
-      createPercyExtension({ settings, piSettings: () => SettingsManager.inMemory(harness.settings ?? {}) }),
+      createPercyExtension({
+        settings,
+        piSettings: () => SettingsManager.inMemory(harness.settings ?? {}),
+        ...(harness.timers ? { timers: harness.timers } : {}),
+      }),
+      ...(harness.extensions ?? []),
     ],
   });
   await loader.reload();

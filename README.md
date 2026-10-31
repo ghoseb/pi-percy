@@ -176,6 +176,16 @@ pnpm run check
 
 `pnpm run check` runs Prettier, typed ESLint, strict TypeScript checks, and the test suite.
 
+`test/session-model.test.ts` runs random action sequences on a real Pi session: prompts, tool calls, provider errors, aborts, external tool and system prompt changes, idle runs, compactions, recall, resume, reload, and `/tree` jumps. After each action, it checks that the session stays consistent. Set these environment variables to control it:
+
+| Variable            | Effect                                                    |
+| ------------------- | --------------------------------------------------------- |
+| `PERCY_PBT_RUNS`    | The number of sequences. The default is 1000 (about 30s). |
+| `PERCY_PBT_SEED`    | Replays the sequences of a reported seed.                 |
+| `PERCY_PBT_ACTIONS` | Replays one reported counterexample (JSON).               |
+| `PERCY_PBT_DUMP`    | Adds the session branch to a failure.                     |
+| `PERCY_PBT_STATS`   | Prints counts of what the sequences did.                  |
+
 ## Credits
 
 pi-percy ports the in-place compaction design from [Shelley](https://github.com/boldsoftware/shelley). Read the design explanation in ["Compaction"](https://blog.exe.dev/compaction).
