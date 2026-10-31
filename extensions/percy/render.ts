@@ -20,7 +20,7 @@ import {
   TruncatedText,
 } from "@earendil-works/pi-tui";
 import type { StoredCompaction } from "./branch.ts";
-import { contentText } from "./messages.ts";
+import { contentText, isPlainObject } from "./messages.ts";
 import type { NudgeDetails } from "./types.ts";
 
 type CustomMessage<T = unknown> = Parameters<MessageRenderer<T>>[0];
@@ -87,13 +87,9 @@ function arrayLength(value: unknown): number {
   return Array.isArray(value) ? value.length : 0;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
 /** A concise status line in place of Pi's generic tool-call argument dump. */
 export function renderCompactCall(args: unknown, theme: Theme): Component {
-  const input = isRecord(args) ? args : {};
+  const input = isPlainObject(args) ? args : {};
   const action = input["action"] === "index" ? "index" : "compact";
   const counts: [number, string][] = [
     [arrayLength(input["collapse"]), "range"],
@@ -119,7 +115,7 @@ function toolResultText(result: { content: unknown }): string {
   if (!Array.isArray(result.content)) return "";
   return result.content
     .map((block) =>
-      isRecord(block) && block["type"] === "text" && typeof block["text"] === "string" ? block["text"] : "",
+      isPlainObject(block) && block["type"] === "text" && typeof block["text"] === "string" ? block["text"] : "",
     )
     .join("\n");
 }

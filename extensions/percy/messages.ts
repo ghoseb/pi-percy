@@ -9,6 +9,11 @@ export function toolCalls(m: AgentMessage): ToolCall[] {
   return m.content.filter((c): c is ToolCall => c.type === "toolCall");
 }
 
+/** Reports whether value is an object and not an array or null, as tool-call arguments are. */
+export function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 export function hasToolCall(m: AgentMessage): boolean {
   return toolCalls(m).length > 0;
 }

@@ -39,6 +39,7 @@ import {
 import { debugCompletions, DEBUG_USAGE, parseDebugCommand } from "./debug.ts";
 import { idleNudgeText, worthIdleCompaction } from "./idle.ts";
 import { compactIndex } from "./index-render.ts";
+import { isPlainObject } from "./messages.ts";
 import { type NudgeSettings, nudgeDue, sizeLine } from "./nudge.ts";
 import { renderOriginals, resolveIds } from "./recall.ts";
 import { renderCompactCall, renderCompactResult, renderIndex, renderNudge, renderRecord } from "./render.ts";
@@ -153,24 +154,20 @@ function currentView(ctx: ExtensionContext): BranchView {
   return branchView(sm.getBranch(), sm.buildSessionProjection());
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
 function isUnknownArray(value: unknown): value is readonly unknown[] {
   return Array.isArray(value);
 }
 
 /** Models send ids as numbers or strings; the schema takes strings. */
 function stringIds(args: unknown): unknown {
-  if (!isRecord(args)) return args;
+  if (!isPlainObject(args)) return args;
   const str = (v: unknown) => (typeof v === "number" ? String(v) : v);
   const strings = (v: unknown) => (isUnknownArray(v) ? v.map(str) : undefined);
   const collapse = isUnknownArray(args["collapse"])
-    ? args["collapse"].map((c) => (isRecord(c) ? { ...c, from: str(c["from"]), to: str(c["to"]) } : c))
+    ? args["collapse"].map((c) => (isPlainObject(c) ? { ...c, from: str(c["from"]), to: str(c["to"]) } : c))
     : undefined;
   const collapseUnits = isUnknownArray(args["collapseUnits"])
-    ? args["collapseUnits"].map((unit) => (isRecord(unit) ? { ...unit, id: str(unit["id"]) } : unit))
+    ? args["collapseUnits"].map((unit) => (isPlainObject(unit) ? { ...unit, id: str(unit["id"]) } : unit))
     : undefined;
   const trim = strings(args["trim"]);
   const ids = strings(args["ids"]);
