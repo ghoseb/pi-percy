@@ -9,6 +9,7 @@ import { NUDGE_TYPE } from "../extensions/percy/types.ts";
 import { dump, type Harness, startHarness } from "./harness.ts";
 
 const IDLE = { minutes: 0.002, minTokens: 1 };
+const RESUMED_IDLE = { minutes: 0.01, minTokens: 1 };
 
 async function until(cond: () => boolean, what: string, ms = 3000) {
   const end = Date.now() + ms;
@@ -75,7 +76,7 @@ test("an idle conversation gets one compaction turn", async () => {
   }
 });
 
-test("a resumed session arms idle compaction from persisted activity", async () => {
+test("a resumed session waits a fresh idle interval", async () => {
   const first = await startHarness({ limits: { keepRecentTokens: 1 }, nudge: { at: 1e9 }, idle: { minutes: 0 } });
   let manager: SessionManager | undefined;
   try {
@@ -88,6 +89,10 @@ test("a resumed session arms idle compaction from persisted activity", async () 
       content: "Changed system prompt.",
       timestamp: Date.now(),
     });
+    const old = new Date(Date.now() - 60_000).toISOString();
+    for (const entry of first.session.sessionManager.getBranch()) {
+      if (entry.type === "message" && entry.message.role !== "system") entry.timestamp = old;
+    }
     manager = first.session.sessionManager;
   } finally {
     first.dispose();
@@ -95,10 +100,12 @@ test("a resumed session arms idle compaction from persisted activity", async () 
 
   if (!manager) throw new Error("the initial session did not create a session manager");
   const resumed = await startHarness(
-    { limits: { keepRecentTokens: 1 }, nudge: { at: 1e9 }, idle: IDLE },
+    { limits: { keepRecentTokens: 1 }, nudge: { at: 1e9 }, idle: RESUMED_IDLE },
     { sessionManager: manager },
   );
   try {
+    await sleep(100);
+    assert.equal(idleNudges(resumed).length, 0, "the old session started compaction immediately");
     await until(() => idleNudges(resumed).length === 1 && resumed.session.isIdle, "the resumed idle compaction turn");
     assert.equal(resumed.requests.length, 1);
     const request = resumed.requests[0]!;
