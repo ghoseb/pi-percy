@@ -5,12 +5,13 @@
 // and context edits, which the turn_end handler appends before the next model
 // request. recall shows the originals. While compact_in_place is active and
 // compaction is not toggled off, the agent is also nudged with the context
-// size and the index (see nudge.ts), and a conversation left idle gets one
-// compaction turn (see idle.ts). pi-percy never changes the active tools: a
-// tool change is a system prompt change, which pi records mid-conversation.
-// The compact-in-place command asks the agent to compact; the debug command is
-// a testing aid. Settings come from the "percy" key of pi's settings.json.
-import { StringEnum } from "@earendil-works/pi-ai";
+// size and the index before its next request (see nudge.ts), and a
+// conversation left idle gets one compaction turn (see idle.ts). pi-percy
+// never changes the active tools: a tool change is a system prompt change,
+// which pi records mid-conversation. The compact-in-place command asks the
+// agent to compact; the debug command is a testing aid. Settings come from
+// the "percy" key of pi's settings.json.
+import { StringEnum, type TextContent } from "@earendil-works/pi-ai";
 import {
   calculateContextTokens,
   DEFAULT_MAX_BYTES,
@@ -49,7 +50,7 @@ import {
 import { compactRequest } from "./validate.ts";
 import { applyCompaction, editsBetween } from "./view.ts";
 
-/** Records the nudge settings a branch was last nudged with (see nudgeAfter). */
+/** Records the nudge settings a branch was last nudged with (see nudgeDecision). */
 const NUDGE_SETTINGS_TYPE = "percy-nudge-settings";
 /** An index shown by /percy:compact-debug: rendered, not sent to the model. */
 const INDEX_TYPE = "percy-index";
@@ -164,16 +165,32 @@ function contextTokens(m: AgentMessage): number | undefined {
   return n > 0 ? n : undefined;
 }
 
-/** The context size of the newest response on branch before entry id. */
-function previousTokens(branch: readonly SessionEntry[], id: string): number | undefined {
-  const end = branch.findIndex((e) => e.id === id);
-  for (let i = (end < 0 ? branch.length : end) - 1; i >= 0; i--) {
+/** The context size an entry's response reports, if it is one that does. */
+const entryTokens = (e: SessionEntry) => (e.type === "message" ? contextTokens(e.message) : undefined);
+
+/**
+ * The context size of the nudge decision before branch[end]: the newest
+ * earlier response whose turn did not compact. Shelley's nudger skips the
+ * decision right after a compaction, as the response's size is from before
+ * it, so that decision leaves the level as it was.
+ */
+function decidedTokens(branch: readonly SessionEntry[], end: number): number | undefined {
+  let compacted = false;
+  for (let i = end - 1; i >= 0; i--) {
     const e = branch[i]!;
-    const n = e.type === "message" ? contextTokens(e.message) : undefined;
-    if (n !== undefined) return n;
+    if (e.type === "custom" && e.customType === RECORD_TYPE) compacted = true;
+    const n = entryTokens(e);
+    if (n === undefined) continue;
+    if (!compacted) return n;
+    compacted = false;
   }
   return undefined;
 }
+
+const isNudge = (e: SessionEntry, idle: boolean) =>
+  e.type === "custom_message" &&
+  e.customType === NUDGE_TYPE &&
+  ((e.details as { idle?: boolean } | undefined)?.idle === true) === idle;
 
 /** The nudge settings last recorded on branch, if any. */
 function recordedNudge(branch: readonly SessionEntry[]): NudgeSettings | undefined {
@@ -272,9 +289,8 @@ export function createPercyExtension(options: PercyOptions = {}) {
       for (let i = branch.length - 1; i >= 0; i--) {
         const entry = branch[i]!;
         if (entry.type === "message" && entry.message.role === "user") return false;
-        if (entry.type === "custom_message" && entry.customType === NUDGE_TYPE) {
-          return (entry.details as { idle?: boolean } | undefined)?.idle === true;
-        }
+        // A context nudge can follow the idle nudge in the idle run.
+        if (isNudge(entry, true)) return true;
       }
       return false;
     }
@@ -539,37 +555,50 @@ export function createPercyExtension(options: PercyOptions = {}) {
     );
 
     /**
-     * The entries to append after this turn's response for nudging: the
-     * nudge settings when they changed, and the nudge (the size line and
-     * the index) when one is due. A nudge reaches the model with the next
-     * request, in this turn or the next. When the settings changed since
-     * the branch was last nudged (or it never was), the previous response
-     * does not count, so lowering the threshold nudges right away.
+     * The nudge decision after the response at branch[index], of tokens
+     * context: Shelley's contextNudger, taken before each model request.
+     * Returns the nudge settings to record when they changed, and the nudge
+     * (the size line and the index) when one is due. When the settings
+     * changed since the branch was last nudged (or it never was), the earlier
+     * responses do not count, so lowering the threshold nudges right away.
      */
-    function nudgeAfter(event: TurnEndEvent, ctx: ExtensionContext): SessionBoundaryDraft[] {
-      if (!compacting()) return [];
-      const tokens = contextTokens(event.message);
-      if (tokens === undefined) return [];
-      const branch = ctx.sessionManager.getBranch();
+    function nudgeDecision(
+      ctx: ExtensionContext,
+      branch: readonly SessionEntry[],
+      index: number,
+      tokens: number,
+    ): { record?: NudgeSettings; nudge?: TextContent[] } {
       const { at, step } = settings.nudge;
       const recorded = recordedNudge(branch);
       const changed = recorded?.at !== at || recorded?.step !== step;
-      const drafts: SessionBoundaryDraft[] = [];
-      if (changed) drafts.push({ type: "custom", customType: NUDGE_SETTINGS_TYPE, data: { at, step } });
-      const previous = changed ? undefined : previousTokens(branch, event.messageEntryId);
+      const previous = changed ? undefined : decidedTokens(branch, index);
+      const decision: { record?: NudgeSettings; nudge?: TextContent[] } = changed ? { record: { at, step } } : {};
       if (nudgeDue(tokens, previous, settings.nudge)) {
         const view = currentView(ctx);
-        drafts.push({
-          type: "custom_message",
-          customType: NUDGE_TYPE,
-          content: [
-            { type: "text", text: sizeLine(tokens) },
-            { type: "text", text: compactIndex(view.items, settings.limits, view.systemBoundaries) },
-          ],
-          display: true,
-        });
+        decision.nudge = [
+          { type: "text", text: sizeLine(tokens) },
+          { type: "text", text: compactIndex(view.items, settings.limits, view.systemBoundaries) },
+        ];
       }
-      return drafts;
+      return decision;
+    }
+
+    /**
+     * The nudge entries for the request that follows this turn's response in
+     * the same run: one follows a tool batch, or a final reply when messages
+     * are queued for this run.
+     */
+    function nudgeAfter(event: TurnEndEvent, ctx: ExtensionContext): SessionBoundaryDraft[] {
+      if (!compacting() || (event.toolResults.length === 0 && !ctx.hasPendingMessages())) return [];
+      const tokens = contextTokens(event.message);
+      if (tokens === undefined) return [];
+      const branch = ctx.sessionManager.getBranch();
+      const at = branch.findIndex((e) => e.id === event.messageEntryId);
+      const { record, nudge } = nudgeDecision(ctx, branch, at < 0 ? branch.length : at, tokens);
+      return [
+        ...(record ? [{ type: "custom" as const, customType: NUDGE_SETTINGS_TYPE, data: record }] : []),
+        ...(nudge ? [{ type: "custom_message" as const, customType: NUDGE_TYPE, content: nudge, display: true }] : []),
+      ];
     }
 
     // Appends this turn's compactions, or else the nudge entries, before
@@ -582,6 +611,23 @@ export function createPercyExtension(options: PercyOptions = {}) {
       if (drafts.length === 0) drafts.push(...nudgeAfter(event, ctx));
       if (drafts.length === 0) return;
       return { entries: [...event.entries, ...drafts] };
+    });
+
+    // The nudge for a final reply goes with the next run's first request,
+    // after its prompt, as Shelley injects it. pi records a prompt change
+    // before the prompt, so a nudge never separates it from the prompt.
+    pi.on("before_agent_start", (_event, ctx) => {
+      if (!compacting()) return;
+      const branch = ctx.sessionManager.getBranch();
+      const index = branch.findLastIndex((e) => entryTokens(e) !== undefined);
+      if (index < 0) return;
+      // Decided at its turn's end: a nudge was sent, or the turn compacted.
+      const later = branch.slice(index + 1);
+      if (later.some((e) => isNudge(e, false) || (e.type === "custom" && e.customType === RECORD_TYPE))) return;
+      const { record, nudge } = nudgeDecision(ctx, branch, index, entryTokens(branch[index]!)!);
+      if (record) pi.appendEntry(NUDGE_SETTINGS_TYPE, record);
+      if (nudge) return { message: { customType: NUDGE_TYPE, content: nudge, display: true } };
+      return;
     });
   };
 }

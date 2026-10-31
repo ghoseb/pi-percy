@@ -222,7 +222,12 @@ test("pi-percy never changes the system prompt or the tools", async () => {
     const before = h.requests.length;
     await h.send(`/${COMPACT_COMMAND}`);
     await until(() => h.requests.length > before && h.session.isIdle, "the compact request's run");
-    await h.call("compact_in_place", { action: "compact", collapse: [{ from: "9", to: "12", note: "echoed" }] });
+    // The call's message number (1-based) is the result's 0-based index.
+    const callSeq = h.session.sessionManager
+      .getBranch()
+      .findIndex((e: SessionEntry) => e.type === "message" && e.message.role === "toolResult");
+    await h.call("compact_in_place", { action: "compact", trim: [String(callSeq)] });
+    assert.equal(h.lastToolResult().isError, false, h.lastToolResult().text);
     await until(() => ofType(h, "custom_message", NUDGE_TYPE).some((e) => isIdle(e)), "an idle compaction turn");
     await until(() => h.session.isIdle, "the idle run");
     assert.ok(ofType(h, "custom", RECORD_TYPE).length >= 1, "a compaction applied");

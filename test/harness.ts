@@ -101,6 +101,14 @@ const honestUsage: ExtensionFactory = (pi) => {
   });
 };
 
+const isContextNudge = (m: Message) => m.role === "user" && /^Context is \d+k\./.test(textOf(m));
+
+function withoutTrailingNudges(messages: Message[]): Message[] {
+  let end = messages.length;
+  while (end > 0 && isContextNudge(messages[end - 1]!)) end--;
+  return messages.slice(0, end);
+}
+
 export interface HarnessOptions {
   contextWindow?: number;
   /** pi settings, in memory. */
@@ -128,10 +136,13 @@ export async function startHarness(
   let calls = 0;
   const respond = (ctx: { messages: Message[] }) => {
     requests.push(structuredClone(ctx.messages));
-    const custom = harness.respond?.(ctx.messages);
+    // The script answers the message before a context nudge, which pi-percy
+    // sends after a prompt or tool results.
+    const messages = withoutTrailingNudges(ctx.messages);
+    const custom = harness.respond?.(messages);
     if (typeof custom === "string") return fauxAssistantMessage(fauxText(custom));
     if (custom) return fauxAssistantMessage(fauxToolCall(custom.tool, custom.args as never, { id: `call${++calls}` }));
-    const last = ctx.messages[ctx.messages.length - 1];
+    const last = messages[messages.length - 1];
     const call = last?.role === "user" ? /^call (\w+) (.*)$/s.exec(textOf(last)) : null;
     if (call) return fauxAssistantMessage(fauxToolCall(call[1]!, parseJsonObject(call[2]!), { id: `call${++calls}` }));
     const many = last?.role === "user" ? /^calls (.*)$/s.exec(textOf(last)) : null;

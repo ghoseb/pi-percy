@@ -115,6 +115,42 @@ test("a resumed session waits a fresh idle interval", async () => {
   }
 });
 
+test("an idle run with a context nudge stays blocked after resume", async () => {
+  // Every growing response crosses a level, so the idle run's request also
+  // carries a context nudge after the idle nudge, as Shelley injects one.
+  const first = await startHarness(
+    { limits: { keepRecentTokens: 1 }, nudge: { at: 1, step: 1 }, idle: IDLE },
+    { respond: compactOnIdle },
+  );
+  let manager: SessionManager | undefined;
+  try {
+    await first.send("hello");
+    await first.call("echo", { text: "OUTPUT ", times: 300 });
+    await until(() => records(first).length === 1 && first.session.isIdle, "the idle compaction");
+    const branch = first.session.sessionManager.getBranch();
+    const idle = branch.findIndex((e) => idleNudges(first).includes(e));
+    const next = branch[idle + 1];
+    assert.ok(
+      next?.type === "custom_message" && next.customType === NUDGE_TYPE,
+      "a context nudge after the idle nudge",
+    );
+    manager = first.session.sessionManager;
+  } finally {
+    first.dispose();
+  }
+  if (!manager) throw new Error("the initial session did not create a session manager");
+  const resumed = await startHarness(
+    { limits: { keepRecentTokens: 1 }, nudge: { at: 1, step: 1 }, idle: IDLE },
+    { sessionManager: manager },
+  );
+  try {
+    await sleep(400);
+    assert.equal(resumed.requests.length, 0, "a second idle run without new input");
+  } finally {
+    resumed.dispose();
+  }
+});
+
 test("a small context gets no idle compaction turn", async () => {
   const h = await startHarness({ limits: { keepRecentTokens: 1 }, idle: { ...IDLE, minTokens: 1_000_000 } });
   try {

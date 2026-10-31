@@ -27,22 +27,36 @@ const responseSizes = (h: Harness) =>
 
 const lastRequest = (h: Harness) => dump(h.requests[h.requests.length - 1]!).join("\n");
 
+/** Roles and nudges on the branch, in order: "user:<text>", "assistant", "nudge", ... */
+const order = (h: Harness) =>
+  h.session.sessionManager.getBranch().flatMap((e) => {
+    if (e.type === "custom_message" && e.customType === NUDGE_TYPE) return ["nudge"];
+    if (e.type !== "message" || e.message.role === "system") return [];
+    return [e.message.role === "user" ? `user:${dump([e.message])[0]!.slice(6, 30)}` : e.message.role];
+  });
+
 // Port of Shelley's TestCompactInPlaceNudge.
 test("the agent is nudged once at the threshold, with the index", async () => {
   const h = await startHarness({ limits: { keepRecentTokens: 1 }, nudge: { at: 500, step: 1_000_000 } });
   try {
     await h.send("hello");
-    // The nudge after a final reply waits for the next request: no extra call.
+    // The nudge is taken before the next request: none yet, and no extra call.
     assert.equal(h.requests.length, 1);
+    assert.equal(nudges(h).length, 0);
+    const size = responseSizes(h).at(-1)!;
+
+    await h.send("two");
     const [nudge] = nudges(h);
     assert.ok(nudge, "no nudge");
     const content = nudge.content as { type: string; text: string }[];
-    assert.match(content[0]!.text, /^Context is \d+k\.$/);
+    assert.equal(content[0]!.text, `Context is ${Math.floor((size + 5000) / 10000) * 10}k.`);
     assert.ok(content[1]!.text.startsWith("## Index") && content[1]!.text.includes('text "hello"'), content[1]!.text);
-
-    await h.send("two");
+    // As Shelley injects it: after the prompt, sent with its request.
+    assert.deepEqual(order(h), ["user:hello", "assistant", "user:two", "nudge", "assistant"]);
     const request = lastRequest(h);
     assert.ok(request.includes("Context is") && request.includes("## Index"), request);
+
+    await h.send("three");
     assert.equal(nudges(h).length, 1, "nudged again below the next step");
 
     // The agent can compact from the nudge's index, and the compaction hides
@@ -61,14 +75,28 @@ test("the agent is nudged once at the threshold, with the index", async () => {
   }
 });
 
+test("a nudge follows a tool batch within the run", async () => {
+  const h = await startHarness({ nudge: { at: 1, step: 1_000_000 } });
+  try {
+    await h.call("echo", { text: "x" });
+    // The first response (the call) crosses the threshold; its nudge goes
+    // with the tool result, before the run's next request.
+    assert.deepEqual(order(h), ['user:call echo {"text":"x"}', "assistant", "toolResult", "nudge", "assistant"]);
+    assert.ok(dump(h.requests[1]!).join("\n").includes("Context is"));
+  } finally {
+    h.dispose();
+  }
+});
+
 test("no nudge right after a compaction; dropping below a level re-arms it", async () => {
   // Every response that grows the context crosses a level.
   const h = await startHarness({ limits: { keepRecentTokens: 1 }, nudge: { at: 1, step: 1 } });
   try {
     await h.send("hello");
+    assert.equal(nudges(h).length, 0);
     await h.call("echo", { text: "x".repeat(8000) });
-    const before = nudges(h).length;
-    assert.equal(before, 3, "one nudge per growing response");
+    // One with the prompt (for the reply to hello), one with the tool result.
+    assert.equal(nudges(h).length, 2);
 
     // The call's message number (1-based) is the result's 0-based index.
     const callSeq = h.session.sessionManager
@@ -76,14 +104,18 @@ test("no nudge right after a compaction; dropping below a level re-arms it", asy
       .findIndex((e) => e.type === "message" && e.message.role === "toolResult");
     await h.call("compact_in_place", { action: "compact", trim: [String(callSeq)] });
     assert.equal(h.lastToolResult().isError, false, h.lastToolResult().text);
-    // The compact call's response grew the context, but its size is from
-    // before the compaction; the response after it is smaller.
+    // One with the prompt. The compact call's response grew the context, but
+    // its size is from before the compaction: none with its result.
+    assert.equal(nudges(h).length, 3, "nudged around the compaction");
     const sizes = responseSizes(h);
     assert.ok(sizes[sizes.length - 1]! < sizes[sizes.length - 2]!, `sizes ${sizes.join(", ")}`);
-    assert.equal(nudges(h).length, before, "nudged around the compaction");
 
+    // The reply after the compaction is below the level of the last decision.
     await h.send("more");
-    assert.equal(nudges(h).length, before + 1, "not re-armed");
+    assert.equal(nudges(h).length, 3, "nudged below the level");
+    // Growing again from there crosses a level.
+    await h.send("again");
+    assert.equal(nudges(h).length, 4, "not re-armed");
   } finally {
     h.dispose();
   }

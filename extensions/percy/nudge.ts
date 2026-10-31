@@ -2,9 +2,10 @@
 // threshold, and again every step beyond, with the index so it can compact
 // right away.
 //
-// Port of Shelley's contextNudger, without state of its own: a nudge is due
-// when a response's level is above the level of the response before it on
-// the branch. Dropping below a level (after a compaction) re-arms it, and a
+// Port of Shelley's contextNudger, without state of its own. Shelley decides
+// before each model request: a nudge is due when the last response's level
+// is above the level at the previous decision, which is skipped right after
+// a compaction. Dropping below a level (after a compaction) re-arms it, and a
 // resumed or re-branched session does not repeat a nudge.
 
 export interface NudgeSettings {
