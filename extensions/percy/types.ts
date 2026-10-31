@@ -106,6 +106,7 @@ export const COMPACT_COMMAND = "percy:compact-in-place";
 export const DEBUG_COMMAND = "percy:compact-debug";
 export const REWIND_COMMAND = "percy:rewind-compaction";
 export const TOGGLE_COMMAND = "percy:toggle-compaction";
+export const STATUS_COMMAND = "percy:status";
 /** customType of context nudges (size and idle), hidden by compacting. */
 export const NUDGE_TYPE = "percy-nudge";
 

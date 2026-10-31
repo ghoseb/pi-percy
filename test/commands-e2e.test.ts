@@ -11,6 +11,7 @@ import {
   DEBUG_COMMAND,
   NUDGE_TYPE,
   REWIND_COMMAND,
+  STATUS_COMMAND,
   TOGGLE_COMMAND,
 } from "../extensions/percy/types.ts";
 import { dump, GREETING, type Harness, startHarness } from "./harness.ts";
@@ -71,6 +72,22 @@ test("/percy:toggle-compaction controls compaction for this session", async () =
   }
 });
 
+test("/percy:status reports state without a model request", async () => {
+  const h = await startHarness({ idle: { minutes: 1, minTokens: 1 } });
+  try {
+    await h.send("hello");
+    const requests = h.requests.length;
+    await h.send(`/${STATUS_COMMAND}`);
+    assert.equal(h.requests.length, requests);
+    const status = h.notifications.at(-1)?.message ?? "";
+    assert.match(status, /pi-percy: enabled/);
+    assert.match(status, /history: ~\d+ tokens/);
+    assert.match(status, /idle: armed; fires in ~\d+m/);
+  } finally {
+    h.dispose();
+  }
+});
+
 test("/percy:rewind-compaction returns to before the newest compaction without a model request", async () => {
   const h = await startHarness({ limits: { keepRecentTokens: 1 } });
   try {
@@ -98,6 +115,27 @@ test("/percy:rewind-compaction returns to before the newest compaction without a
     );
     assert.equal(h.requests.length, requests, "undo must not request a model response");
     assert.match(h.notifications.at(-1)?.message ?? "", /rewound the branch/);
+  } finally {
+    h.dispose();
+  }
+});
+
+test("/percy:rewind-compaction leaves the branch unchanged when declined", async () => {
+  const h = await startHarness({ limits: { keepRecentTokens: 1 } }, { confirm: false });
+  try {
+    await h.send("hello");
+    const greeting = h.session.sessionManager
+      .getBranch()
+      .findIndex((entry) => entry.type === "message" && JSON.stringify(entry.message).includes(GREETING));
+    await h.call("compact_in_place", {
+      action: "compact",
+      collapse: [{ from: String(greeting + 1), to: String(greeting + 1), note: "greeted" }],
+    });
+    const leaf = h.session.sessionManager.getLeafId();
+    const requests = h.requests.length;
+    await h.send(`/${REWIND_COMMAND}`);
+    assert.equal(h.session.sessionManager.getLeafId(), leaf);
+    assert.equal(h.requests.length, requests);
   } finally {
     h.dispose();
   }

@@ -42,6 +42,7 @@ import {
   NUDGE_TYPE,
   RECALL_TOOL,
   REWIND_COMMAND,
+  STATUS_COMMAND,
   TOGGLE_COMMAND,
 } from "./types.ts";
 import { compactRequest } from "./validate.ts";
@@ -249,6 +250,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
     // compaction, pi's idle cache warming stops until new input: the
     // conversation is idle, and the compacted context is a new cache entry.
     let idleTimer: ReturnType<typeof setTimeout> | undefined;
+    let idleDeadline: number | undefined;
     // Invalidates a callback that was queued as a timer was cancelled.
     let idleGeneration = 0;
     let idleRun = false;
@@ -257,6 +259,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
       idleGeneration++;
       clearTimeout(idleTimer);
       idleTimer = undefined;
+      idleDeadline = undefined;
     };
 
     /** An idle run has already happened and no user message has resumed the conversation. */
@@ -286,7 +289,9 @@ export function createPercyExtension(options: PercyOptions = {}) {
       cancelIdle();
       if (settings.idle.minutes <= 0 || idleCompactionBlocked(ctx)) return;
       const generation = idleGeneration;
-      idleTimer = setTimeout(() => startIdleCompaction(ctx, generation), settings.idle.minutes * 60_000);
+      const wait = settings.idle.minutes * 60_000;
+      idleDeadline = Date.now() + wait;
+      idleTimer = setTimeout(() => startIdleCompaction(ctx, generation), wait);
       // An idle timer must not keep pi from exiting.
       idleTimer.unref?.();
     }
@@ -350,6 +355,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
     /** Starts the idle compaction turn, if the conversation is still idle and worth it. */
     function startIdleCompaction(ctx: ExtensionContext, generation: number) {
       idleTimer = undefined;
+      idleDeadline = undefined;
       try {
         if (generation !== idleGeneration) return;
         if (!ctx.isIdle() || ctx.hasPendingMessages() || !pi.getActiveTools().includes(COMPACT_TOOL)) return;
@@ -482,13 +488,20 @@ export function createPercyExtension(options: PercyOptions = {}) {
           ctx.ui.notify("pi-percy: wait for the current turn to finish before rewinding compaction", "warning");
           return;
         }
-        const record = [...ctx.sessionManager.getBranch()]
+        const branch = ctx.sessionManager.getBranch();
+        const record = [...branch]
           .reverse()
           .find((entry) => entry.type === "custom" && entry.customType === RECORD_TYPE);
         if (!record?.parentId) {
           ctx.ui.notify("pi-percy: no compaction on this branch to undo", "warning");
           return;
         }
+        const later = branch.length - branch.indexOf(record) - 1;
+        const confirmed = await ctx.ui.confirm(
+          "Rewind pi-percy compaction?",
+          `This returns to before the newest compaction. ${later} later ${later === 1 ? "entry" : "entries"} stay on an alternate branch; use /tree to return.`,
+        );
+        if (!confirmed) return;
         const result = await ctx.navigateTree(record.parentId, { summarize: false });
         if (result.cancelled) {
           ctx.ui.notify("pi-percy: compaction rewind was cancelled", "warning");
@@ -505,6 +518,33 @@ export function createPercyExtension(options: PercyOptions = {}) {
         const enabled = tools.includes(COMPACT_TOOL);
         pi.setActiveTools(enabled ? tools.filter((tool) => tool !== COMPACT_TOOL) : [...tools, COMPACT_TOOL]);
         ctx.ui.notify(`pi-percy: compaction ${enabled ? "disabled" : "enabled"} for this session`, "info");
+        return Promise.resolve();
+      },
+    });
+
+    pi.registerCommand(STATUS_COMMAND, {
+      description: "Show pi-percy compaction status without a model request",
+      handler: (_args, ctx) => {
+        const view = currentView(ctx);
+        const enabled = pi.getActiveTools().includes(COMPACT_TOOL);
+        const idle =
+          settings.idle.minutes === 0
+            ? "disabled"
+            : idleDeadline === undefined
+              ? idleCompactionBlocked(ctx)
+                ? "blocked after an idle compaction"
+                : "not armed"
+              : `armed; fires in ~${Math.max(0, Math.ceil((idleDeadline - Date.now()) / 60_000))}m`;
+        const eligible = worthIdleCompaction(view.items, settings.limits, settings.idle.minTokens);
+        ctx.ui.notify(
+          [
+            `pi-percy: ${enabled ? "enabled" : "disabled"}`,
+            `history: ~${itemTokens(view.items)} tokens`,
+            `nudges: ~${settings.nudge.at} tokens, then every ~${settings.nudge.step}`,
+            `idle: ${idle}; ${eligible ? "eligible" : `requires ~${settings.idle.minTokens} tokens and older history`}`,
+          ].join("\n"),
+          "info",
+        );
         return Promise.resolve();
       },
     });

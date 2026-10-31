@@ -101,6 +101,7 @@ New user input cancels the idle timer. An idle compaction does not start another
 | `/percy:compact-debug [index\|squish\|trim]` | Show the index or record a direct test compaction. Use this command for development.                        |
 | `/percy:rewind-compaction`                   | Rewind the active branch to before the newest pi-percy compaction.                                          |
 | `/percy:toggle-compaction`                   | Enable or disable pi-percy context compaction for this session.                                             |
+| `/percy:status`                              | Show pi-percy state, context estimate, nudge schedule, and idle timer without a model request.              |
 | `/reload`                                    | Reload Pi extensions and read changed settings.                                                             |
 
 The usual workflow is automatic. Wait for a context nudge. The agent uses its index and calls `compact_in_place`. Use `/percy:compact-in-place` when you want to request compaction earlier.
@@ -121,7 +122,7 @@ The command rejects an unknown row, a row without trim-able output, or a collaps
 
 ### Rewind a compaction
 
-`/percy:rewind-compaction` needs no model request. It moves the active session-tree leaf to the entry before the newest `percy-compaction` record. This rewinds the active branch. It leaves that compaction and every later message on an abandoned branch. Pi keeps that branch and its original messages in the session file; use `/tree` to return to it.
+`/percy:rewind-compaction` needs no model request. It first asks for confirmation and states how many later entries will remain on the alternate branch. If confirmed, it moves the active session-tree leaf to the entry before the newest `percy-compaction` record. This rewinds the active branch. Pi keeps that branch and its original messages in the session file; use `/tree` to return to it.
 
 Use this command if a compaction produces a provider-invalid context. The command does not run while the agent is working. Wait for the current turn to end first.
 

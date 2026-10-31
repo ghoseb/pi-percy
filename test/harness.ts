@@ -112,6 +112,8 @@ export interface HarnessOptions {
   respond?: (messages: Message[]) => { tool: string; args: Record<string, unknown> } | string | undefined;
   /** Continue this session, as resuming it would. */
   sessionManager?: SessionManager;
+  /** Result returned by confirmation dialogs. Defaults to approval. */
+  confirm?: boolean;
 }
 
 /** Starts a session with pi-percy on its defaults, overridden by settings; pi's settings.json files are not read. */
@@ -177,10 +179,11 @@ export async function startHarness(
   const errors: string[] = [];
   // pi copies the UI's own properties, so it must be a plain object.
   const ui = {
+    confirm: () => Promise.resolve(harness.confirm ?? true),
     notify: (message: string, type?: string) => {
       notifications.push(type === undefined ? { message } : { message, type });
     },
-  } as ExtensionUIContext;
+  } as unknown as ExtensionUIContext;
   await session.bindExtensions({
     uiContext: ui,
     commandContextActions: {
