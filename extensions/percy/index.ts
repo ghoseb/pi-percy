@@ -237,9 +237,12 @@ export function createPercyExtension(options: PercyOptions = {}) {
     // compaction, pi's idle cache warming stops until new input: the
     // conversation is idle, and the compacted context is a new cache entry.
     let idleTimer: ReturnType<typeof setTimeout> | undefined;
+    // Invalidates a callback that was queued as a timer was cancelled.
+    let idleGeneration = 0;
     let idleRun = false;
     let warmingStopped = false;
     const cancelIdle = () => {
+      idleGeneration++;
       clearTimeout(idleTimer);
       idleTimer = undefined;
     };
@@ -261,7 +264,8 @@ export function createPercyExtension(options: PercyOptions = {}) {
     function armIdle(ctx: ExtensionContext) {
       cancelIdle();
       if (settings.idle.minutes <= 0 || idleCompactionBlocked(ctx)) return;
-      idleTimer = setTimeout(() => startIdleCompaction(ctx), settings.idle.minutes * 60_000);
+      const generation = idleGeneration;
+      idleTimer = setTimeout(() => startIdleCompaction(ctx, generation), settings.idle.minutes * 60_000);
       // An idle timer must not keep pi from exiting.
       idleTimer.unref?.();
     }
@@ -284,13 +288,17 @@ export function createPercyExtension(options: PercyOptions = {}) {
     });
     pi.on("model_select", (event, ctx) => checkModel(ctx, event.model));
     pi.on("session_shutdown", cancelIdle);
-    // Pi inserts a system-prompt delta before a custom turn. On an old session
-    // that ends in an assistant message, Anthropic rejects that interleaved
-    // system message before the idle nudge can reach the model. A forced prompt
-    // makes Pi send one system message at the head for this idle-only turn.
+    // Pi may insert a system-prompt delta before a pi-percy-created turn. On
+    // an old session that ends in an assistant message, Anthropic rejects that
+    // interleaved system message. A forced prompt sends one system message at
+    // the head for either pi-percy-created run type.
     pi.on("before_agent_start", (event) => {
-      if (event.messageType !== "custom" || event.message.customType !== NUDGE_TYPE) return;
-      if ((event.message.details as { idle?: boolean } | undefined)?.idle !== true) return;
+      const idleNudge =
+        event.messageType === "custom" &&
+        event.message.customType === NUDGE_TYPE &&
+        (event.message.details as { idle?: boolean } | undefined)?.idle === true;
+      const compactCommand = event.messageType === "user" && event.prompt.startsWith(COMPACT_REQUEST);
+      if (!idleNudge && !compactCommand) return;
       return { systemPrompt: event.systemPrompt };
     });
     pi.on("input", () => {
@@ -319,9 +327,10 @@ export function createPercyExtension(options: PercyOptions = {}) {
     pi.on("cache_warming_decision", () => (warmingStopped ? { action: "stop" } : undefined));
 
     /** Starts the idle compaction turn, if the conversation is still idle and worth it. */
-    function startIdleCompaction(ctx: ExtensionContext) {
+    function startIdleCompaction(ctx: ExtensionContext, generation: number) {
       idleTimer = undefined;
       try {
+        if (generation !== idleGeneration) return;
         if (!ctx.isIdle() || ctx.hasPendingMessages() || !pi.getActiveTools().includes(COMPACT_TOOL)) return;
         const view = currentView(ctx);
         if (!worthIdleCompaction(view.items, settings.limits, settings.idle.minTokens)) return;

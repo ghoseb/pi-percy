@@ -35,11 +35,21 @@ test("/percy:compact-in-place asks the agent to compact, turning the tool on", a
   try {
     h.session.setActiveToolsByName(["echo", "recall"]);
     await h.send("hello");
+    // A pi-percy command must also work when a loaded session has a system
+    // prompt delta after an assistant message.
+    h.session.sessionManager.appendMessage({
+      role: "system",
+      content: "Changed system prompt.",
+      timestamp: Date.now(),
+    });
     await h.send(`/${COMPACT_COMMAND} keep the plan`);
     // The command sends the request; its run starts after the command returns.
     await until(() => h.requests.length === 2 && h.session.isIdle, "the request's run");
     assert.ok(h.session.getActiveToolNames().includes("compact_in_place"));
     assert.ok(lastRequest(h).includes(`user: ${COMPACT_REQUEST}\n\nkeep the plan`), lastRequest(h));
+    const request = h.requests[1]!;
+    assert.equal(request[0]?.role, "system");
+    assert.equal(request.filter((message) => message.role === "system").length, 1);
   } finally {
     h.dispose();
   }
