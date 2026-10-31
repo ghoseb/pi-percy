@@ -14,6 +14,7 @@ import {
   STATUS_COMMAND,
   TOGGLE_COMMAND,
 } from "../extensions/percy/types.ts";
+import { anthropicRequestWire, misplacedSystemMessages } from "./anthropic-wire.ts";
 import { dump, GREETING, type Harness, startHarness } from "./harness.ts";
 
 const ofType = (h: Harness, type: string, customType: string) =>
@@ -35,8 +36,8 @@ test("/percy:compact-in-place asks the agent to compact without changing tools",
   const h = await startHarness();
   try {
     await h.send("hello");
-    // A pi-percy command must also work when a loaded session has a system
-    // prompt delta after an assistant message.
+    // A pi-percy command must also send a valid request when a loaded
+    // session has a system prompt delta after an assistant message.
     h.session.sessionManager.appendMessage({
       role: "system",
       content: "Changed system prompt.",
@@ -47,9 +48,7 @@ test("/percy:compact-in-place asks the agent to compact without changing tools",
     await until(() => h.requests.length === 2 && h.session.isIdle, "the request's run");
     assert.ok(h.session.getActiveToolNames().includes("compact_in_place"));
     assert.ok(lastRequest(h).includes(`user: ${COMPACT_REQUEST}\n\nkeep the plan`), lastRequest(h));
-    const request = h.requests[1]!;
-    assert.equal(request[0]?.role, "system");
-    assert.equal(request.filter((message) => message.role === "system").length, 1);
+    assert.deepEqual(misplacedSystemMessages(await anthropicRequestWire(h.requests[1]!)), []);
   } finally {
     h.dispose();
   }

@@ -6,6 +6,7 @@ import type { Message } from "@earendil-works/pi-ai";
 import type { SessionEntry, SessionManager } from "@earendil-works/pi-coding-agent";
 import { RECORD_TYPE } from "../extensions/percy/branch.ts";
 import { NUDGE_TYPE, TOGGLE_COMMAND } from "../extensions/percy/types.ts";
+import { anthropicRequestWire, misplacedSystemMessages } from "./anthropic-wire.ts";
 import { dump, type Harness, startHarness } from "./harness.ts";
 
 const IDLE = { minutes: 0.002, minTokens: 1 };
@@ -83,7 +84,7 @@ test("a resumed session waits a fresh idle interval", async () => {
     await first.send("hello");
     await first.call("echo", { text: "OUTPUT ", times: 300 });
     // Simulate a session loaded with a persisted system-prompt delta after an
-    // assistant response. The idle custom turn must not send it mid-history.
+    // assistant response. The idle turn's request must stay valid.
     first.session.sessionManager.appendMessage({
       role: "system",
       content: "Changed system prompt.",
@@ -108,9 +109,7 @@ test("a resumed session waits a fresh idle interval", async () => {
     assert.equal(idleNudges(resumed).length, 0, "the old session started compaction immediately");
     await until(() => idleNudges(resumed).length === 1 && resumed.session.isIdle, "the resumed idle compaction turn");
     assert.equal(resumed.requests.length, 1);
-    const request = resumed.requests[0]!;
-    assert.equal(request[0]?.role, "system");
-    assert.equal(request.filter((message) => message.role === "system").length, 1);
+    assert.deepEqual(misplacedSystemMessages(await anthropicRequestWire(resumed.requests[0]!)), []);
   } finally {
     resumed.dispose();
   }

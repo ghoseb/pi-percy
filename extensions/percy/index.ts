@@ -320,19 +320,6 @@ export function createPercyExtension(options: PercyOptions = {}) {
     });
     pi.on("model_select", (event, ctx) => checkModel(ctx, event.model));
     pi.on("session_shutdown", cancelIdle);
-    // Pi may insert a system-prompt delta before a pi-percy-created turn. On
-    // an old session that ends in an assistant message, Anthropic rejects that
-    // interleaved system message. A forced prompt sends one system message at
-    // the head for either pi-percy-created run type.
-    pi.on("before_agent_start", (event) => {
-      const idleNudge =
-        event.messageType === "custom" &&
-        event.message.customType === NUDGE_TYPE &&
-        (event.message.details as { idle?: boolean } | undefined)?.idle === true;
-      const compactCommand = event.messageType === "user" && event.prompt.startsWith(COMPACT_REQUEST);
-      if (!idleNudge && !compactCommand) return;
-      return { systemPrompt: event.systemPrompt };
-    });
     pi.on("input", () => {
       cancelIdle();
       idleRun = false;

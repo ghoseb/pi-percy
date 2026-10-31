@@ -2,7 +2,7 @@
 // with a fake client, and the check Anthropic applies to its system messages.
 import { stream } from "@earendil-works/pi-ai/api/anthropic-messages";
 import { getModel } from "@earendil-works/pi-ai/compat";
-import { normalizeContext } from "@earendil-works/pi-ai";
+import { type Message, normalizeContext, type TranscriptContext } from "@earendil-works/pi-ai";
 import { convertToLlm } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage } from "../extensions/percy/types.ts";
 
@@ -18,7 +18,16 @@ const MODEL = getModel("anthropic", "claude-opus-5-5");
  * The messages pi-ai sends to Anthropic for messages (pi's context, without
  * the leading system prompt, which this adds).
  */
-export async function anthropicWire(messages: readonly AgentMessage[]): Promise<WireMessage[]> {
+export function anthropicWire(messages: readonly AgentMessage[]): Promise<WireMessage[]> {
+  return anthropicRequest(normalizeContext({ systemPrompt: "You are pi.", messages: convertToLlm([...messages]) }));
+}
+
+/** The messages pi-ai sends to Anthropic for a request a provider received. */
+export function anthropicRequestWire(messages: readonly Message[]): Promise<WireMessage[]> {
+  return anthropicRequest(normalizeContext({ messages: [...messages] }));
+}
+
+async function anthropicRequest(context: TranscriptContext): Promise<WireMessage[]> {
   let captured: WireMessage[] | undefined;
   const client = {
     beta: {
@@ -30,7 +39,6 @@ export async function anthropicWire(messages: readonly AgentMessage[]): Promise<
       },
     },
   };
-  const context = normalizeContext({ systemPrompt: "You are pi.", messages: convertToLlm([...messages]) });
   const events = stream(MODEL, context, { client: client as never, effort: "high" });
   // Drained: the fake client ends the stream with an error after capturing.
   for await (const event of events) void event;
