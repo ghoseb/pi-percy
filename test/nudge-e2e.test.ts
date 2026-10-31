@@ -45,6 +45,7 @@ test("the agent is nudged once at the threshold, with the index", async () => {
     assert.ok(nudge, "no nudge");
     const content = nudge.content as { type: string; text: string }[];
     assert.equal(content[0]!.text, `Context is ${Math.floor((size + 5000) / 10000) * 10}k.`);
+    assert.deepEqual(nudge.details, { tokens: size });
     assert.ok(content[1]!.text.startsWith("## Index") && content[1]!.text.includes('text "hello"'), content[1]!.text);
     // As Shelley injects it: after the prompt, sent with its request.
     assert.deepEqual(order(h), ["user:hello", "assistant", "user:two", "nudge", "assistant"]);
@@ -78,6 +79,8 @@ test("a nudge follows a tool batch within the run", async () => {
     // with the tool result, before the run's next request.
     assert.deepEqual(order(h), ['user:call echo {"text":"x"}', "assistant", "toolResult", "nudge", "assistant"]);
     assert.ok(dump(h.requests[1]!).join("\n").includes("Context is"));
+    const [nudge] = nudges(h);
+    assert.deepEqual(nudge?.details, { tokens: responseSizes(h)[0] });
   } finally {
     h.dispose();
   }

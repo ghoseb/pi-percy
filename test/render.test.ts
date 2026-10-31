@@ -209,12 +209,17 @@ test("nudges show their first line, and the index on expand", () => {
     details,
     timestamp: 0,
   });
-  const size = message(["Context is 210k.", "## Index\n\nrows"]);
+  const size = message(["Context is 210k.", "## Index\n\nrows"], { tokens: 205_000 });
   assert.match(
     plain(renderNudge(size, false, 1, t).render(200)),
     /^\[context\]\nContext is 210k: sent the agent the compaction index \(.* to expand\)$/,
   );
   assert.ok(plain(renderNudge(size, true, 1, t).render(200)).includes("Index"));
+  // Recorded before context nudges stored their size.
+  assert.match(
+    plain(renderNudge(message(["Context is 210k.", "## Index"]), false, 1, t).render(200)),
+    /^\[context\]\nContext nudge: sent the agent the compaction index \(/,
+  );
   const idleText = ["[The conversation has been idle for 8 minutes. Compact ...]", "## Index"];
   assert.match(
     plain(renderNudge(message(idleText, { idle: true, minutes: 8 }), false, 1, t).render(200)),

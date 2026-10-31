@@ -22,6 +22,7 @@ import {
 import type { StoredCompaction } from "./branch.ts";
 import type { IndexEntry } from "./debug.ts";
 import { contentText, isPlainObject } from "./messages.ts";
+import { roundedK } from "./nudge.ts";
 import type { CompactDetails, NudgeDetails } from "./types.ts";
 
 type CustomMessage<T = unknown> = Parameters<MessageRenderer<T>>[0];
@@ -214,9 +215,8 @@ export function renderNudge(
     const idle = details.minutes === undefined ? "Idle" : `Idle for ${plural(details.minutes, "minute")}`;
     summary = `${idle}: asked the agent to compact`;
   } else {
-    // The size line, "Context is Nk."
-    const first = text.split("\n")[0] ?? "";
-    summary = `${first.endsWith(".") ? first.slice(0, -1) : first}: sent the agent the compaction index`;
+    const size = details?.tokens === undefined ? "Context nudge" : `Context is ${roundedK(details.tokens)}k`;
+    summary = `${size}: sent the agent the compaction index`;
   }
   return frame(theme, "context", outputPad, collapsed(theme, summary));
 }

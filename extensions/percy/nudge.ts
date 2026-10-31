@@ -39,9 +39,14 @@ export function nudgeDue(tokens: number, previous: number | undefined, s: NudgeS
   return nudgeLevel(tokens, s) > (previous === undefined ? -1 : nudgeLevel(previous, s));
 }
 
+/** A context size in thousands, rounded to the nearest 10k. */
+export function roundedK(tokens: number): number {
+  return Math.floor((tokens + 5000) / 10000) * 10;
+}
+
 /** The nudge's first line, the size rounded to the nearest 10k. */
 export function sizeLine(tokens: number): string {
-  return `Context is ${Math.floor((tokens + 5000) / 10000) * 10}k.`;
+  return `Context is ${roundedK(tokens)}k.`;
 }
 
 /** The context size a response reports, or undefined if it reports none. */

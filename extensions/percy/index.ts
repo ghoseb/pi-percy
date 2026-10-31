@@ -238,13 +238,15 @@ export function createPercyExtension(options: PercyOptions = {}) {
       renderNudge(message, expanded, outputPad, theme),
     );
 
-    /** A context nudge: the size line and the index. */
-    function nudgeContent(ctx: ExtensionContext, tokens: number): TextContent[] {
+    /** A context nudge: the size line and the index, and the size for its card. */
+    function nudgeMessage(ctx: ExtensionContext, tokens: number) {
       const view = currentView(ctx);
-      return [
+      const content: TextContent[] = [
         { type: "text", text: sizeLine(tokens) },
         { type: "text", text: compactIndex(view.items, settings.limits, view.systemBoundaries) },
       ];
+      const details: NudgeDetails = { tokens };
+      return { customType: NUDGE_TYPE, content, display: true, details };
     }
 
     /**
@@ -266,16 +268,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
       if (due && queued) return [{ type: "custom", customType: NUDGE_DEFERRED_TYPE, data: {} }];
       return [
         ...(record ? [{ type: "custom" as const, customType: NUDGE_SETTINGS_TYPE, data: record }] : []),
-        ...(due
-          ? [
-              {
-                type: "custom_message" as const,
-                customType: NUDGE_TYPE,
-                content: nudgeContent(ctx, tokens),
-                display: true,
-              },
-            ]
-          : []),
+        ...(due ? [{ type: "custom_message" as const, ...nudgeMessage(ctx, tokens) }] : []),
       ];
     }
 
@@ -306,9 +299,8 @@ export function createPercyExtension(options: PercyOptions = {}) {
       if (later.some((e) => isNudgeEntry(e, "context") || isRecordEntry(e))) return;
       const tokens = entryTokens(branch[index]!)!;
       const { record, due } = decideNudge(branch, index, tokens, settings.nudge);
-      const nudge = due ? nudgeContent(ctx, tokens) : undefined;
       if (record) pi.appendEntry(NUDGE_SETTINGS_TYPE, record);
-      if (nudge) return { message: { customType: NUDGE_TYPE, content: nudge, display: true } };
+      if (due) return { message: nudgeMessage(ctx, tokens) };
       return;
     });
   };
