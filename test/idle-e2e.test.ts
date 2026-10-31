@@ -52,6 +52,8 @@ test("an idle conversation gets one compaction turn", async () => {
     await h.call("echo", { text: "OUTPUT ", times: 300 });
     await until(() => records(h).length === 1 && h.session.isIdle, "the idle compaction");
     assert.equal(idleNudges(h).length, 1);
+    const [nudge] = idleNudges(h);
+    assert.deepEqual(nudge?.type === "custom_message" && nudge.details, { idle: true, minutes: IDLE.minutes });
 
     // The idle turn compacted, and the compaction hid its nudge.
     const request = dump(h.requests[h.requests.length - 1]!).join("\n");

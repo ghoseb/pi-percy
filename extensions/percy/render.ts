@@ -20,6 +20,7 @@ import {
   TruncatedText,
 } from "@earendil-works/pi-tui";
 import type { StoredCompaction } from "./branch.ts";
+import type { IndexEntry } from "./debug.ts";
 import { contentText, isPlainObject } from "./messages.ts";
 import type { CompactDetails, NudgeDetails } from "./types.ts";
 
@@ -202,22 +203,25 @@ export function renderNudge(
 ): Component {
   const text = contentText(message.content, "\n\n");
   if (expanded) return frame(theme, "context", outputPad, markdown(theme, text));
-  const first = text.split("\n")[0] ?? "";
-  const summary = message.details?.idle
-    ? `${/idle for [\d.]+ minutes/.exec(first)?.[0] ?? "Idle"}: asked the agent to compact`
-    : `${first.replace(/\.$/, "")}: sent the agent the compaction index`;
-  return frame(theme, "context", outputPad, collapsed(theme, summary.charAt(0).toUpperCase() + summary.slice(1)));
+  const details = message.details;
+  let summary: string;
+  if (details?.idle) {
+    const idle = details.minutes === undefined ? "Idle" : `Idle for ${plural(details.minutes, "minute")}`;
+    summary = `${idle}: asked the agent to compact`;
+  } else {
+    // The size line, "Context is Nk."
+    const first = text.split("\n")[0] ?? "";
+    summary = `${first.endsWith(".") ? first.slice(0, -1) : first}: sent the agent the compaction index`;
+  }
+  return frame(theme, "context", outputPad, collapsed(theme, summary));
 }
 
 /** The index shown by /percy:compact-debug. */
-export function renderIndex(entry: CustomEntry<{ index: string }>, expanded: boolean, theme: Theme): Component {
+export function renderIndex(entry: CustomEntry<IndexEntry>, expanded: boolean, theme: Theme): Component {
   const index = entry.data?.index ?? "";
   if (expanded) return frame(theme, "compaction index", 1, markdown(theme, index));
-  const rows = (/```\n([\s\S]*?)```/.exec(index)?.[1] ?? "").split("\n").filter(Boolean).length - 1;
-  return frame(
-    theme,
-    "compaction index",
-    1,
-    collapsed(theme, rows > 0 ? `${plural(rows, "row")} to compact` : "Nothing to compact yet"),
-  );
+  const rows = entry.data?.rows;
+  const summary =
+    rows === undefined ? "Index" : rows > 0 ? `${plural(rows, "row")} to compact` : "Nothing to compact yet";
+  return frame(theme, "compaction index", 1, collapsed(theme, summary));
 }

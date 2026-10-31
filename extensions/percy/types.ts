@@ -117,8 +117,8 @@ export type CompactDetails =
   /** A request with problems: nothing was compacted. */
   | { kind: "rejected"; problems: string[] };
 
-/** A nudge's details: an idle nudge says so. */
-export type NudgeDetails = { idle?: boolean } | undefined;
+/** A nudge's details: an idle nudge says so, and after how many idle minutes (older ones do not). */
+export type NudgeDetails = { idle?: boolean; minutes?: number } | undefined;
 
 export function emptyCompaction(): Compaction {
   return { squishes: [], trims: [], hiddenSeqs: [], hiddenToolCallIds: [] };

@@ -11,7 +11,7 @@ import {
   renderNudge,
   renderRecord,
 } from "../extensions/percy/render.ts";
-import { NUDGE_TYPE } from "../extensions/percy/types.ts";
+import { NUDGE_TYPE, type NudgeDetails } from "../extensions/percy/types.ts";
 
 before(() => initTheme("dark"));
 
@@ -201,12 +201,12 @@ test("a compaction card expands with a left click, like pi's card", () => {
 });
 
 test("nudges show their first line, and the index on expand", () => {
-  const message = (content: string[], idle?: boolean) => ({
+  const message = (content: string[], details?: NudgeDetails) => ({
     role: "custom" as const,
     customType: NUDGE_TYPE,
     content: content.map((text) => ({ type: "text" as const, text })),
     display: true,
-    details: idle ? { idle } : undefined,
+    details,
     timestamp: 0,
   });
   const size = message(["Context is 210k.", "## Index\n\nrows"]);
@@ -215,23 +215,33 @@ test("nudges show their first line, and the index on expand", () => {
     /^\[context\]\nContext is 210k: sent the agent the compaction index \(.* to expand\)$/,
   );
   assert.ok(plain(renderNudge(size, true, 1, t).render(200)).includes("Index"));
-  const idle = message(["[The conversation has been idle for 8 minutes. Compact ...]", "## Index"], true);
+  const idleText = ["[The conversation has been idle for 8 minutes. Compact ...]", "## Index"];
   assert.match(
-    plain(renderNudge(idle, false, 1, t).render(200)),
+    plain(renderNudge(message(idleText, { idle: true, minutes: 8 }), false, 1, t).render(200)),
     /^\[context\]\nIdle for 8 minutes: asked the agent to compact \(/,
+  );
+  // Recorded before idle nudges stored their minutes.
+  assert.match(
+    plain(renderNudge(message(idleText, { idle: true }), false, 1, t).render(200)),
+    /^\[context\]\nIdle: asked the agent to compact \(/,
   );
 });
 
-test("the /percy:compact-debug index counts its rows", () => {
+test("the /percy:compact-debug index shows its row count", () => {
   const index =
     '## Index\n\nintro\n\n```\nid  role  tokens  content\n1   user* 2       text "x"\n2   user* 2       text "y"\n```\n';
   assert.match(
-    plain(renderIndex(entry("percy-index", { index }), false, t).render(200)),
+    plain(renderIndex(entry("percy-index", { index, rows: 2 }), false, t).render(200)),
     /^\[compaction index\]\n2 rows to compact \(/,
   );
   const empty = "## Index\n\n2 messages, ~3 tokens.\nAll of it is recent, so nothing can be compacted yet.\n";
   assert.match(
-    plain(renderIndex(entry("percy-index", { index: empty }), false, t).render(200)),
+    plain(renderIndex(entry("percy-index", { index: empty, rows: 0 }), false, t).render(200)),
     /Nothing to compact yet/,
+  );
+  // Recorded before index entries stored their rows.
+  assert.match(
+    plain(renderIndex(entry("percy-index", { index }), false, t).render(200)),
+    /^\[compaction index\]\nIndex \(/,
   );
 });

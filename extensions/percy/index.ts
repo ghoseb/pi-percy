@@ -29,7 +29,7 @@ import {
   type StoredCompaction,
 } from "./branch.ts";
 import { registerCommands } from "./commands.ts";
-import { INDEX_TYPE } from "./debug.ts";
+import { INDEX_TYPE, type IndexEntry } from "./debug.ts";
 import {
   idleCompactionBlocked,
   idleNudgeText,
@@ -197,7 +197,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
                 { type: "text", text: compactIndex(view.items, settings.limits, view.systemBoundaries) },
               ],
               display: true,
-              details: { idle: true },
+              details: { idle: true, minutes: settings.idle.minutes },
             },
             { triggerTurn: true },
           ),
@@ -231,7 +231,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
     pi.registerEntryRenderer<StoredCompaction>(RECORD_TYPE, (entry, { expanded }, theme) =>
       renderRecord(entry, expanded, theme),
     );
-    pi.registerEntryRenderer<{ index: string }>(INDEX_TYPE, (entry, { expanded }, theme) =>
+    pi.registerEntryRenderer<IndexEntry>(INDEX_TYPE, (entry, { expanded }, theme) =>
       renderIndex(entry, expanded, theme),
     );
     pi.registerMessageRenderer<NudgeDetails>(NUDGE_TYPE, (message, { expanded, outputPad }, theme) =>

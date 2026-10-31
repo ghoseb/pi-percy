@@ -5,6 +5,7 @@ import { test } from "node:test";
 import type { SessionEntry, SessionManager } from "@earendil-works/pi-coding-agent";
 import { isNudgeEntry, isRecordEntry } from "../extensions/percy/branch.ts";
 import { COMPACT_REQUEST } from "../extensions/percy/commands.ts";
+import type { IndexEntry } from "../extensions/percy/debug.ts";
 import { noteText } from "../extensions/percy/messages.ts";
 import {
   COMPACT_COMMAND,
@@ -185,7 +186,10 @@ test("/percy:compact-debug shows the index and records squishes and trims", asyn
 
     await h.send(`/${DEBUG_COMMAND}`);
     const [index] = ofType(h, "custom", "percy-index");
-    assert.ok(index?.type === "custom" && (index.data as { index: string }).index.startsWith("## Index"));
+    assert.ok(index?.type === "custom");
+    const data = index.data as IndexEntry;
+    assert.ok(data.index.startsWith("## Index"));
+    assert.equal(data.rows, data.index.split("```")[1]!.trim().split("\n").length - 1);
 
     // Invalid requests record nothing.
     await h.send(`/${DEBUG_COMMAND} trim nope`);

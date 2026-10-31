@@ -2,9 +2,9 @@
 // toggle, and status. Only the compact request makes a model request.
 import type { ExtensionAPI, ExtensionContext, SessionBoundaryDraft } from "@earendil-works/pi-coding-agent";
 import { compactionDrafts, currentView, isRecordEntry } from "./branch.ts";
-import { debugCompletions, DEBUG_USAGE, INDEX_TYPE, parseDebugCommand } from "./debug.ts";
+import { debugCompletions, DEBUG_USAGE, INDEX_TYPE, type IndexEntry, parseDebugCommand } from "./debug.ts";
 import { worthIdleCompaction } from "./idle.ts";
-import { compactIndex } from "./index-render.ts";
+import { buildIndex } from "./index-render.ts";
 import { errorText } from "./messages.ts";
 import { itemTokens } from "./rows.ts";
 import type { PercySettings } from "./settings.ts";
@@ -51,9 +51,8 @@ export function registerCommands(pi: ExtensionAPI, deps: CommandDeps): void {
         const view = currentView(ctx);
         const command = parseDebugCommand(args, view.items, view.systemBoundaries);
         if (command.kind === "index") {
-          pi.appendEntry(INDEX_TYPE, {
-            index: compactIndex(view.items, deps.settings().limits, view.systemBoundaries),
-          });
+          const index = buildIndex(view.items, deps.settings().limits, view.systemBoundaries);
+          pi.appendEntry<IndexEntry>(INDEX_TYPE, { index: index.text, rows: index.rows });
           return Promise.resolve();
         }
         // Commands cannot append context edits; turn_end does.

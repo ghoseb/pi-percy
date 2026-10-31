@@ -8,6 +8,11 @@ import { applyCompaction, compactionView, systemBoundaryProblems } from "./view.
 
 /** customType of an index shown by /percy:compact-debug: rendered, not sent to the model. */
 export const INDEX_TYPE = "percy-index";
+/** The data of an INDEX_TYPE entry: the index, and the rows it lists (older entries do not say). */
+export interface IndexEntry {
+  index: string;
+  rows?: number;
+}
 
 export const DEBUG_USAGE = `usage: /${DEBUG_COMMAND} [index] | /${DEBUG_COMMAND} squish <from>-<to> <summary> | /${DEBUG_COMMAND} trim <id>`;
 
