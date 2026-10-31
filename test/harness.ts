@@ -3,6 +3,7 @@
 // of each request: a user message "call <tool> <json args>" makes it call that
 // tool, and "calls [[tool, args], ...]" makes parallel calls; "hello" gets
 // GREETING; "fail" gets a provider error; anything else gets the reply "ok".
+// A summarization request (pi's compaction or branch summary) gets a summary.
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -105,6 +106,10 @@ const honestUsage: ExtensionFactory = (pi) => {
   });
 };
 
+/** A request with pi's summarization system prompt. */
+const isSummarization = (messages: Message[]) =>
+  messages[0]?.role === "system" && JSON.stringify(messages[0].content).includes("context summarization assistant");
+
 const isContextNudge = (m: Message) => m.role === "user" && /^Context is \d+k\./.test(textOf(m));
 
 function withoutTrailingNudges(messages: Message[]): Message[] {
@@ -113,15 +118,19 @@ function withoutTrailingNudges(messages: Message[]): Message[] {
   return messages.slice(0, end);
 }
 
+/** A scripted model reply (see HarnessOptions.respond). */
+export type Reply = { tool: string; args: Record<string, unknown> } | { error: string } | string | undefined;
+
 export interface HarnessOptions {
   contextWindow?: number;
   /** pi settings, in memory. */
   settings?: Parameters<typeof SettingsManager.inMemory>[0];
   /**
    * Answers a request before the default script: a tool call, a text
-   * reply, or undefined to fall through.
+   * reply, a provider error, or undefined to fall through. It runs while the
+   * request is in flight, so it can also act on the running session.
    */
-  respond?: (messages: Message[]) => { tool: string; args: Record<string, unknown> } | string | undefined;
+  respond?: (messages: Message[]) => Reply | Promise<Reply>;
   /** Continue this session, as resuming it would. */
   sessionManager?: SessionManager;
   /** Result returned by confirmation dialogs. Defaults to approval. */
@@ -143,13 +152,16 @@ export async function startHarness(
   const dir = harness.dir ?? mkdtempSync(join(tmpdir(), "percy-test-"));
   const faux = fauxProvider({ provider: "faux", models: [{ id: "faux", contextWindow }] });
   const requests: Message[][] = [];
-  const respond = (ctx: { messages: Message[] }) => {
+  const respond = async (ctx: { messages: Message[] }) => {
     requests.push(structuredClone(ctx.messages));
     // The script answers the message before a context nudge, which pi-percy
     // sends after a prompt or tool results.
     const messages = withoutTrailingNudges(ctx.messages);
-    const custom = harness.respond?.(messages);
+    if (isSummarization(ctx.messages)) return fauxAssistantMessage(fauxText("## Goal\nSummary of the conversation."));
+    const custom = await harness.respond?.(messages);
     if (typeof custom === "string") return fauxAssistantMessage(fauxText(custom));
+    if (custom && "error" in custom)
+      return fauxAssistantMessage([], { stopReason: "error", errorMessage: custom.error });
     if (custom) return fauxAssistantMessage(fauxToolCall(custom.tool, custom.args as never, { id: `call${++calls}` }));
     const last = messages[messages.length - 1];
     const call = last?.role === "user" ? /^call (\w+) (.*)$/s.exec(textOf(last)) : null;

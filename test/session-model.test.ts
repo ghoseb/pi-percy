@@ -1,7 +1,10 @@
 // Model-based property test: random sequences of what can happen in a pi
 // session with pi-percy (prompts, tool batches, provider errors, aborts,
 // external tool and prompt changes, toggles, idle runs, compactions, recall,
-// resume, reload, /tree jumps) on a real session with the faux model. After
+// messages queued or steered while a run is going, resume, reload, /tree
+// jumps with and without branch summaries, and pi's own compaction: manual,
+// at its threshold, and after a context overflow) on a real session with the
+// faux model. After
 // every action, the session must be consistent: what pi would send next and
 // every request it sent are valid for Anthropic, pi-percy changed neither the
 // tools nor the system prompt, the session file resumes to the same context,
@@ -15,7 +18,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import type { Message } from "@earendil-works/pi-ai";
-import { type ExtensionFactory, type SessionEntry, SessionManager } from "@earendil-works/pi-coding-agent";
+import {
+  type ExtensionAPI,
+  type ExtensionFactory,
+  type SessionEntry,
+  SessionManager,
+} from "@earendil-works/pi-coding-agent";
 import fc from "fast-check";
 import { Type } from "typebox";
 import { branchView, RECORD_TYPE, type StoredCompaction } from "../extensions/percy/branch.ts";
@@ -36,6 +44,13 @@ const SEED = process.env["PERCY_PBT_SEED"] === undefined ? undefined : Number(pr
 /** How the agent answers a nudge or a compaction prompt. */
 type Answer = "valid" | "invalid" | "ignore";
 
+/**
+ * What happens while a run is going: a user message steered or queued as a
+ * follow-up, an extension's custom message delivered either way, an external
+ * tool change, or the toggle command.
+ */
+type QueueMode = "steer" | "followUp" | "customSteer" | "customFollowUp" | "externalTools" | "toggle";
+
 type Action =
   | { kind: "prompt"; text: "hello" | "more" }
   | { kind: "tools"; sizes: number[] }
@@ -49,7 +64,10 @@ type Action =
   | { kind: "recall"; seed: number }
   | { kind: "resume" }
   | { kind: "reload" }
-  | { kind: "tree"; seed: number };
+  | { kind: "tree"; seed: number; summarize: boolean }
+  | { kind: "queue"; modes: QueueMode[]; during: "tool" | "model" }
+  | { kind: "piCompact" }
+  | { kind: "overflow" };
 
 const answer = fc.constantFrom<Answer>("valid", "valid", "invalid", "ignore");
 const action: fc.Arbitrary<Action> = fc.oneof(
@@ -58,7 +76,11 @@ const action: fc.Arbitrary<Action> = fc.oneof(
     weight: 4,
     arbitrary: fc.record({
       kind: fc.constant("tools"),
-      sizes: fc.array(fc.integer({ min: 1, max: 400 }), { minLength: 1, maxLength: 3 }),
+      // Big outputs take the context past pi's compaction threshold.
+      sizes: fc.array(fc.oneof(fc.integer({ min: 1, max: 400 }), fc.integer({ min: 1000, max: 4000 })), {
+        minLength: 1,
+        maxLength: 3,
+      }),
     }),
   },
   { weight: 1, arbitrary: fc.record({ kind: fc.constant("fail") }) },
@@ -71,7 +93,20 @@ const action: fc.Arbitrary<Action> = fc.oneof(
   { weight: 1, arbitrary: fc.record({ kind: fc.constant("recall"), seed: fc.nat() }) },
   { weight: 1, arbitrary: fc.record({ kind: fc.constant("resume") }) },
   { weight: 1, arbitrary: fc.record({ kind: fc.constant("reload") }) },
-  { weight: 1, arbitrary: fc.record({ kind: fc.constant("tree"), seed: fc.nat() }) },
+  { weight: 1, arbitrary: fc.record({ kind: fc.constant("tree"), seed: fc.nat(), summarize: fc.boolean() }) },
+  {
+    weight: 3,
+    arbitrary: fc.record({
+      kind: fc.constant("queue"),
+      modes: fc.array(
+        fc.constantFrom<QueueMode>("steer", "followUp", "customSteer", "customFollowUp", "externalTools", "toggle"),
+        { minLength: 1, maxLength: 3 },
+      ),
+      during: fc.constantFrom("tool", "model"),
+    }),
+  },
+  { weight: 1, arbitrary: fc.record({ kind: fc.constant("piCompact") }) },
+  { weight: 1, arbitrary: fc.record({ kind: fc.constant("overflow") }) },
 );
 
 /** State outside the session that survives resume: the user's setup. */
@@ -82,6 +117,16 @@ interface World {
   timer: { callback: () => void } | undefined;
   /** How the agent answers the next idle nudge, and the seed for its choice. */
   idleAnswer: { answer: Answer; seed: number };
+  /** The running harness, for queueing into its session. */
+  h: Harness | undefined;
+  /** What to queue during the next model request. */
+  queueOnRequest: QueueMode[] | undefined;
+  /** Whether the next model request fails with a context overflow. */
+  overflow: boolean;
+  /** Texts queued so far, each unique. */
+  queued: string[];
+  /** The external extension's API, set when it loads. */
+  pi?: ExtensionAPI;
 }
 
 /** A tool and a prompt section that someone other than pi-percy changes. */
@@ -114,7 +159,52 @@ const externalExtension =
       if (!world.external.section) return;
       event.systemPromptOptions.sections = { ...event.systemPromptOptions.sections, external: "Be external." };
     });
+    pi.registerTool({
+      name: "queue",
+      label: "Queue",
+      description: "Queue messages while the run is going",
+      parameters: Type.Object({ modes: Type.Array(Type.String()) }),
+      async execute(_id, params) {
+        await queue(world, params.modes as QueueMode[], pi);
+        return { content: [{ type: "text", text: "queued" }], details: undefined };
+      },
+    });
+    world.pi = pi;
   };
+
+/** Does what modes say to the running session, as a user or another extension would. */
+async function queue(world: World, modes: readonly QueueMode[], pi: ExtensionAPI) {
+  const session = world.h!.session;
+  for (const mode of modes) {
+    const text = `queued ${world.queued.length + 1}`;
+    switch (mode) {
+      case "steer":
+        world.queued.push(text);
+        await session.steer(text);
+        break;
+      case "followUp":
+        world.queued.push(text);
+        await session.followUp(text);
+        break;
+      case "customSteer":
+      case "customFollowUp":
+        world.queued.push(text);
+        pi.sendMessage(
+          { customType: "external-note", content: text, display: true },
+          { deliverAs: mode === "customSteer" ? "steer" : "followUp" },
+        );
+        break;
+      case "externalTools": {
+        const active = pi.getActiveTools();
+        pi.setActiveTools(active.includes("extra") ? active.filter((t) => t !== "extra") : [...active, "extra"]);
+        break;
+      }
+      case "toggle":
+        await session.prompt(`/${TOGGLE_COMMAND}`);
+        break;
+    }
+  }
+}
 
 /** The idle timer, fired only by the idle action. */
 const manualTimers = (world: World): Timers => ({
@@ -190,8 +280,19 @@ function compactArgs(text: string, how: Answer, seed: number): Record<string, un
 const textOf = (m: Message) =>
   typeof m.content === "string" ? m.content : m.content.map((c) => (c.type === "text" ? c.text : "")).join("\n");
 
-/** Answers the idle nudge as world.idleAnswer says. */
-const respond = (world: World) => (messages: Message[]) => {
+/**
+ * Answers a request: queues what world.queueOnRequest says while it is in
+ * flight, fails with a context overflow when world.overflow says so, and
+ * answers the idle nudge as world.idleAnswer says.
+ */
+const respond = (world: World) => async (messages: Message[]) => {
+  const modes = world.queueOnRequest;
+  world.queueOnRequest = undefined;
+  if (modes) await queue(world, modes, world.pi!);
+  if (world.overflow) {
+    world.overflow = false;
+    return { error: "prompt is too long: 200000 tokens > 199999 maximum" };
+  }
   const last = messages[messages.length - 1];
   if (!last || last.role !== "user" || !textOf(last).includes("has been idle")) return undefined;
   const args = compactArgs(textOf(last), world.idleAnswer.answer, world.idleAnswer.seed);
@@ -319,14 +420,17 @@ const SETTINGS = {
 };
 
 async function start(world: World, sessionManager: SessionManager): Promise<Harness> {
-  return startHarness(SETTINGS, {
+  world.h = await startHarness(SETTINGS, {
     dir: world.dir,
     sessionManager,
     extensions: [externalExtension(world)],
     timers: manualTimers(world),
     respond: respond(world),
-    settings: { retry: { enabled: false } },
+    // pi compacts above 16k - 4k = 12k tokens of context.
+    contextWindow: 16_000,
+    settings: { retry: { enabled: false }, compaction: { reserveTokens: 4_000, keepRecentTokens: 1_000 } },
   });
+  return world.h;
 }
 
 const sleep = () => new Promise((r) => setImmediate(r));
@@ -416,12 +520,53 @@ async function run(h: Harness, world: World, a: Action): Promise<Harness> {
     case "reload":
       await h.session.reload();
       return h;
+    case "queue": {
+      const from = world.queued.length;
+      if (a.during === "tool") await h.call("queue", { modes: a.modes });
+      else {
+        world.queueOnRequest = a.modes;
+        await h.send("more");
+      }
+      await settle(h);
+      // Every queued message reaches the branch, once.
+      const texts = h.session.sessionManager
+        .getBranch()
+        .flatMap((e) =>
+          e.type === "message" && e.message.role === "user"
+            ? [textOf(e.message)]
+            : e.type === "custom_message" && typeof e.content === "string"
+              ? [e.content]
+              : [],
+        );
+      for (const text of world.queued.slice(from)) {
+        assert.equal(texts.filter((t) => t === text).length, 1, `"${text}" on the branch`);
+      }
+      count(`queued during the ${a.during}`, world.queued.length - from);
+      return h;
+    }
+    case "piCompact":
+      try {
+        await h.session.compact();
+        count("pi compactions");
+      } catch (err) {
+        count(`pi compaction refused: ${(err as Error).message.slice(0, 40)}`);
+      }
+      return h;
+    case "overflow": {
+      const compactions = () => h.session.sessionManager.getBranch().filter((e) => e.type === "compaction").length;
+      const before = compactions();
+      world.overflow = true;
+      await h.send("more");
+      await settle(h);
+      count(compactions() > before ? "overflows compacted by pi" : "overflows not compacted");
+      return h;
+    }
     case "tree": {
       const sm = h.session.sessionManager;
       const target = chooser(a.seed).pick(sm.getEntries().filter((e) => e.id !== sm.getLeafId()));
       if (!target) return h;
-      await h.session.navigateTree(target.id, { summarize: false });
-      count("tree jumps");
+      await h.session.navigateTree(target.id, { summarize: a.summarize });
+      count(a.summarize ? "tree jumps with a summary" : "tree jumps");
       return h;
     }
   }
@@ -469,6 +614,10 @@ async function runActions(actions: readonly Action[]) {
     external: { section: false },
     timer: undefined,
     idleAnswer: { answer: "ignore", seed: 0 },
+    h: undefined,
+    queueOnRequest: undefined,
+    overflow: false,
+    queued: [],
   };
   let h = await start(world, SessionManager.create(dir, world.sessionDir));
   const checked: Checked = { requests: 0 };
@@ -488,6 +637,8 @@ async function runActions(actions: readonly Action[]) {
     const nudges = branch.filter((e) => e.type === "custom_message" && e.customType === NUDGE_TYPE);
     count("actions", actions.length);
     count("requests checked", checked.requests);
+    count("pi compactions on final branch", branch.filter((e) => e.type === "compaction").length);
+    count("branch summaries on final branch", branch.filter((e) => e.type === "branch_summary").length);
     count("records on final branch", records(branch).length);
     count("idle nudges on final branch", nudges.filter(isIdleNudge).length);
     count("context nudges on final branch", nudges.filter((e) => !isIdleNudge(e)).length);

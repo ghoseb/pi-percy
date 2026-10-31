@@ -176,7 +176,7 @@ pnpm run check
 
 `pnpm run check` runs Prettier, typed ESLint, strict TypeScript checks, and the test suite.
 
-`test/session-model.test.ts` runs random action sequences on a real Pi session: prompts, tool calls, provider errors, aborts, external tool and system prompt changes, idle runs, compactions, recall, resume, reload, and `/tree` jumps. After each action, it checks that the session stays consistent. Set these environment variables to control it:
+`test/session-model.test.ts` runs random action sequences on a real Pi session: prompts, tool calls, provider errors, aborts, external tool and system prompt changes, idle runs, compactions, recall, messages steered or queued while a run is going, resume, reload, `/tree` jumps with and without branch summaries, and Pi's own compaction (manual, at its threshold, and after a context overflow). After each action, it checks that the session stays consistent. Set these environment variables to control it:
 
 | Variable            | Effect                                                    |
 | ------------------- | --------------------------------------------------------- |
