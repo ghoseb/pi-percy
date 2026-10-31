@@ -357,6 +357,8 @@ export function createPercyExtension(options: PercyOptions = {}) {
       try {
         if (generation !== idleGeneration) return;
         if (!compacting() || !ctx.isIdle() || ctx.hasPendingMessages()) return;
+        // The branch can have changed since the timer was armed (/tree).
+        if (idleCompactionBlocked(ctx)) return;
         const view = currentView(ctx);
         if (!worthIdleCompaction(view.items, settings.limits, settings.idle.minTokens)) return;
         idleRun = true;

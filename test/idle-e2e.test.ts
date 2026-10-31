@@ -151,6 +151,32 @@ test("an idle run with a context nudge stays blocked after resume", async () => 
   }
 });
 
+test("a /tree jump back to an idle run does not start another", async () => {
+  const h = await startHarness(
+    { limits: { keepRecentTokens: 1 }, nudge: { at: 1e9 }, idle: IDLE },
+    { respond: compactOnIdle },
+  );
+  try {
+    await h.send("hello");
+    await h.call("echo", { text: "OUTPUT ", times: 300 });
+    await until(() => records(h).length === 1 && h.session.isIdle, "the idle compaction");
+    // The idle run's last reply (a jump to the nudge itself, a custom
+    // message, would go to its parent, before the idle run).
+    const reply = h.session.sessionManager.getLeafId()!;
+
+    // New input arms the timer; the jump then returns to the idle run's
+    // branch, which has had its idle compaction.
+    await h.send("more");
+    const requests = h.requests.length;
+    await h.session.navigateTree(reply, { summarize: false });
+    assert.equal(idleNudges(h).length, 1);
+    await sleep(400);
+    assert.equal(h.requests.length, requests, "a second idle run on the idle run's branch");
+  } finally {
+    h.dispose();
+  }
+});
+
 test("a small context gets no idle compaction turn", async () => {
   const h = await startHarness({ limits: { keepRecentTokens: 1 }, idle: { ...IDLE, minTokens: 1_000_000 } });
   try {
