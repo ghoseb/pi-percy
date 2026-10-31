@@ -204,24 +204,21 @@ export interface CompactResult {
   text: string;
 }
 
-export interface CompactionConstraints {
-  /** Retained Pi system-message positions, which compaction must not make invalid. */
-  systemBoundaries?: readonly number[];
-}
-
 /**
  * Validates the agent's request against history and returns the record to
  * store. The record also hides the evidence of compacting: the nudges, and the
  * earlier calls of compact_in_place (the running call stays, as a receipt).
+ * systemBoundaries are the positions of pi's system messages, which the
+ * compaction must not leave between assistant messages.
  */
 export function compactRequest(
   history: readonly Item[],
   limits: Limits,
   input: CompactInput,
-  constraints: CompactionConstraints = {},
+  systemBoundaries: readonly number[] = [],
 ): CompactResult {
   const unitSelections = input.collapseUnits ?? [];
-  const available = compactionUnits(history, limits, constraints.systemBoundaries);
+  const available = compactionUnits(history, limits, systemBoundaries);
   const units = new Map(available.units.map((unit) => [unit.id, unit]));
   const unitProblems: string[] = [];
   const seenUnits = new Set<string>();
@@ -251,17 +248,17 @@ export function compactRequest(
   const evidence = safeCompactionEvidence(
     beforeHidingEvidence,
     compactionEvidence(beforeHidingEvidence),
-    constraints.systemBoundaries ?? [],
+    systemBoundaries,
   );
   compaction.hiddenSeqs = evidence.seqs;
   compaction.hiddenToolCallIds = evidence.toolCallIds;
   const after = applyCompaction(history, compaction, 0);
-  const systemProblems = systemBoundaryProblems(after, constraints.systemBoundaries ?? []);
+  const systemProblems = systemBoundaryProblems(after, systemBoundaries);
   if (systemProblems.length > 0) throw problemsError(systemProblems);
   const tokensBefore = itemTokens(history);
   const tokensAfter = itemTokens(after);
   const tokensSaved = tokensBefore - tokensAfter;
-  const remainingUnits = compactionUnits(after, limits, constraints.systemBoundaries).units.length;
+  const remainingUnits = compactionUnits(after, limits, systemBoundaries).units.length;
   return {
     compaction,
     edits: editsBetween(history, after),

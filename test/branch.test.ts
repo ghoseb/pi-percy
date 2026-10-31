@@ -171,7 +171,7 @@ test("compaction hides a nudge before a system message when a user message follo
     v.items,
     limits,
     { collapse: [{ from: "1", to: "1", note: "old work" }] },
-    { systemBoundaries: v.systemBoundaries },
+    v.systemBoundaries,
   );
   // pi-ai sends the system message right before the next assistant message,
   // after the user message, so the nudge is not needed there.
@@ -203,7 +203,7 @@ test("compaction keeps the nudge between a system message and the next assistant
     v.items,
     limits,
     { collapse: [{ from: "7", to: "7", note: "after compacting" }] },
-    { systemBoundaries: v.systemBoundaries },
+    v.systemBoundaries,
   );
   // Hiding the nudge would leave 2 (assistant) → system → 5 (assistant).
   // Hiding only the earlier compact_in_place call is safe.
@@ -223,12 +223,7 @@ test("a system message between an assistant and a user message is valid", async 
   assert.deepEqual(v.systemBoundaries, [2]);
   assert.deepEqual(misplacedSystemMessages(await anthropicWire(projected(sm))), []);
   assert.doesNotThrow(() =>
-    compactRequest(
-      v.items,
-      limits,
-      { collapse: [{ from: "1", to: "1", note: "old work" }] },
-      { systemBoundaries: v.systemBoundaries },
-    ),
+    compactRequest(v.items, limits, { collapse: [{ from: "1", to: "1", note: "old work" }] }, v.systemBoundaries),
   );
 });
 
@@ -242,13 +237,7 @@ test("compaction refuses while a system message sits between two assistant messa
   const v = view(sm);
   assert.deepEqual(misplacedSystemMessages(await anthropicWire(projected(sm))).length, 1);
   assert.throws(
-    () =>
-      compactRequest(
-        v.items,
-        limits,
-        { collapse: [{ from: "2", to: "2", note: "old work" }] },
-        { systemBoundaries: v.systemBoundaries },
-      ),
+    () => compactRequest(v.items, limits, { collapse: [{ from: "2", to: "2", note: "old work" }] }, v.systemBoundaries),
     /system message 3 would sit between assistant messages 2-2 and 4-4/,
   );
 });

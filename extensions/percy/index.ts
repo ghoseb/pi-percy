@@ -443,7 +443,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
           ...(params.collapse === undefined ? {} : { collapse: params.collapse }),
           ...(params.collapseUnits === undefined ? {} : { collapseUnits: params.collapseUnits }),
         };
-        const result = compactRequest(view.items, settings.limits, input, { systemBoundaries: view.systemBoundaries });
+        const result = compactRequest(view.items, settings.limits, input, view.systemBoundaries);
         pendingCompaction = { toolCallId, drafts: compactionDrafts(view, result.compaction, result.edits, result) };
         return Promise.resolve(text(result.text));
       },
