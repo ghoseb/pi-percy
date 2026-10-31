@@ -4,8 +4,14 @@ import fc from "fast-check";
 import { compactionUnits } from "../extensions/percy/units.ts";
 import { resolveIds } from "../extensions/percy/recall.ts";
 import { buildCompaction } from "../extensions/percy/validate.ts";
-import { applyCompaction, editsBetween } from "../extensions/percy/view.ts";
-import { compactionView } from "../extensions/percy/view.ts";
+import {
+  applyCompaction,
+  compactionEvidence,
+  compactionView,
+  editsBetween,
+  safeCompactionEvidence,
+  systemBoundaryProblems,
+} from "../extensions/percy/view.ts";
 import { DEFAULT_LIMITS, type Item } from "../extensions/percy/types.ts";
 import type { BranchView } from "../extensions/percy/branch.ts";
 import { assistant, nudge, user } from "./fixtures.ts";
@@ -111,6 +117,26 @@ test("generated note ids resolve to their recorded original range", () => {
       } as unknown as BranchView;
       assert.deepEqual(resolveIds(view, [`s${record}.0`]), [[from, to]]);
       assert.deepEqual(resolveIds(view, [`${from}-${to}`]), [[from, to]]);
+    }),
+    { numRuns: 2_000 },
+  );
+});
+
+// Safety: hiding a nudge immediately before a retained system boundary must
+// never introduce the assistant → system shape rejected by Anthropic.
+test("generated evidence hiding preserves system boundaries", () => {
+  fc.assert(
+    fc.property(fc.boolean(), (assistantBeforeSystem) => {
+      const first = assistantBeforeSystem ? assistant(1, "old reply") : user(1, "old request");
+      const items = [first, nudge(2)];
+      const boundaries = [3];
+      const evidence = safeCompactionEvidence(items, compactionEvidence(items), boundaries);
+      const after = applyCompaction(
+        items,
+        { squishes: [], trims: [], hiddenSeqs: evidence.seqs, hiddenToolCallIds: [] },
+        1,
+      );
+      assert.deepEqual(systemBoundaryProblems(after, boundaries), []);
     }),
     { numRuns: 2_000 },
   );
