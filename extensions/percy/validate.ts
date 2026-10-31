@@ -30,9 +30,18 @@ export const RETRY_GUIDANCE =
  * The error for a rejected request: its problems, all at once, then how to
  * retry. One problem reads as a sentence; several as a list.
  */
-function problemsError(problems: readonly string[]): Error {
-  if (problems.length === 1) return new Error(`${problems[0]}. ${RETRY_GUIDANCE}`);
-  return new Error(`${problems.length} problems:\n- ${problems.join("\n- ")}\n\n${RETRY_GUIDANCE}`);
+/** A request with problems, so nothing was compacted. Its message is the reply to the agent. */
+export class CompactionProblems extends Error {
+  readonly problems: string[];
+  constructor(problems: readonly string[]) {
+    super(
+      problems.length === 1
+        ? `${problems[0]}. ${RETRY_GUIDANCE}`
+        : `${problems.length} problems:\n- ${problems.join("\n- ")}\n\n${RETRY_GUIDANCE}`,
+    );
+    this.name = "CompactionProblems";
+    this.problems = [...problems];
+  }
 }
 
 /** The trims of a row's tool outputs not trimmed yet. */
@@ -177,7 +186,7 @@ export function buildCompaction(
     c.squishes.push({ from: rows[i]![0]!.from, to: last.to, summary: col.note });
   }
 
-  if (found.length > 0) throw problemsError(found);
+  if (found.length > 0) throw new CompactionProblems(found);
   // Squishes apply in order, each to the view the previous ones left; they
   // are disjoint, so order them as they appear.
   c.squishes.sort((a, b) => a.from - b.from);
@@ -246,7 +255,7 @@ export function compactRequest(
   compaction.hiddenToolCallIds = evidence.toolCallIds;
   const after = applyCompaction(history, compaction);
   const systemProblems = systemBoundaryProblems(after, systemBoundaries);
-  if (systemProblems.length > 0) throw problemsError(systemProblems);
+  if (systemProblems.length > 0) throw new CompactionProblems(systemProblems);
   const tokensBefore = itemTokens(history);
   const tokensAfter = itemTokens(after);
   const tokensSaved = tokensBefore - tokensAfter;

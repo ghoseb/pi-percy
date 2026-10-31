@@ -45,7 +45,7 @@ export interface Harness {
   /** The texts of all tool results, oldest first. */
   toolResults(): { text: string; isError: boolean }[];
   /** The text of the newest tool result, and whether it is an error. */
-  lastToolResult(): { text: string; isError: boolean };
+  lastToolResult(): { text: string; isError: boolean; details: unknown };
   dispose(): void;
 }
 
@@ -257,7 +257,7 @@ export async function startHarness(
         .flatMap((e) => (e.type === "message" && e.message.role === "toolResult" ? [e.message] : []));
       const r = results[results.length - 1];
       if (!r) throw new Error("no tool result yet");
-      return { text: textOf(r), isError: r.isError };
+      return { text: textOf(r), isError: r.isError, details: r.details };
     },
     dispose() {
       session.dispose();

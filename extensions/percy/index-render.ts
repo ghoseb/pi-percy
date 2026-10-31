@@ -39,10 +39,19 @@ export function compactIndex(
   limits: Limits,
   systemBoundaries: readonly number[] = [],
 ): string {
+  return buildIndex(history, limits, systemBoundaries).text;
+}
+
+/** The index of history the agent compacts from, and the number of rows it lists. */
+export function buildIndex(
+  history: readonly Item[],
+  limits: Limits,
+  systemBoundaries: readonly number[] = [],
+): { text: string; rows: number } {
   const items = compactionView(history);
   const recent = recentStart(items, limits.keepRecentTokens);
   let out = `## Index\n\n${items.length} messages, ~${itemTokens(items)} tokens.\n`;
-  if (recent === 0) return `${out}All of it is recent, so nothing can be compacted yet.\n`;
+  if (recent === 0) return { text: `${out}All of it is recent, so nothing can be compacted yet.\n`, rows: 0 };
   const kept = items.slice(recent);
   out += `The recent part, from ${itemId(items[recent]!)} on (${kept.length} messages, ~${itemTokens(kept)} tokens), is kept as is and not listed.\n`;
   out += `\n${guidance(limits.maxCollapseTokens)}\n\n${TABLE_INTRO}\n\n\`\`\`\n`;
@@ -63,7 +72,7 @@ export function compactIndex(
     ...(unitLines.length > 0 ? unitLines : ["none"]),
     ...(protectedLines.length > 0 ? ["Protected rows:", ...protectedLines] : []),
   ].join("\n");
-  return `${out}${tabulate(table)}\`\`\`\n\n${unitSection}\n`;
+  return { text: `${out}${tabulate(table)}\`\`\`\n\n${unitSection}\n`, rows: recentRow };
 }
 
 /** Aligns all columns but the last, two spaces apart, like Go's tabwriter. */

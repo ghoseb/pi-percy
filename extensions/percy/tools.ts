@@ -11,13 +11,13 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "typebox";
 import { compactionDrafts, currentView } from "./branch.ts";
-import { compactIndex } from "./index-render.ts";
+import { buildIndex } from "./index-render.ts";
 import { isPlainObject } from "./messages.ts";
 import { renderOriginals, resolveIds } from "./recall.ts";
 import { renderCompactCall, renderCompactResult } from "./render.ts";
 import type { PercySettings } from "./settings.ts";
-import { COMPACT_TOOL, RECALL_TOOL } from "./types.ts";
-import { compactRequest } from "./validate.ts";
+import { COMPACT_TOOL, type CompactDetails, RECALL_TOOL } from "./types.ts";
+import { CompactionProblems, compactRequest } from "./validate.ts";
 
 const COMPACT_DESCRIPTION = [
   "Selectively compact this conversation's older context.",
@@ -93,6 +93,7 @@ export function stringIds(args: unknown): unknown {
 }
 
 const text = (t: string) => ({ content: [{ type: "text" as const, text: t }], details: undefined });
+const result = (t: string, details: CompactDetails) => ({ content: [{ type: "text" as const, text: t }], details });
 
 /** What the tools read and change of pi-percy's state. */
 export interface ToolDeps {
@@ -117,8 +118,10 @@ export function registerTools(pi: ExtensionAPI, deps: ToolDeps): void {
     executionMode: "sequential",
     execute(toolCallId, params, _signal, _onUpdate, ctx) {
       const view = currentView(ctx);
-      if (params.action === "index")
-        return Promise.resolve(text(compactIndex(view.items, deps.settings().limits, view.systemBoundaries)));
+      if (params.action === "index") {
+        const index = buildIndex(view.items, deps.settings().limits, view.systemBoundaries);
+        return Promise.resolve(result(index.text, { kind: "index", rows: index.rows }));
+      }
       if (deps.compactionPending()) {
         throw new Error("A compaction from this turn is waiting to be applied; compact again after the next response.");
       }
@@ -127,9 +130,24 @@ export function registerTools(pi: ExtensionAPI, deps: ToolDeps): void {
         ...(params.collapse === undefined ? {} : { collapse: params.collapse }),
         ...(params.collapseUnits === undefined ? {} : { collapseUnits: params.collapseUnits }),
       };
-      const result = compactRequest(view.items, deps.settings().limits, input, view.systemBoundaries);
-      deps.queueCompaction(toolCallId, compactionDrafts(view, result.compaction, result.edits, result));
-      return Promise.resolve(text(result.text));
+      let compacted;
+      try {
+        compacted = compactRequest(view.items, deps.settings().limits, input, view.systemBoundaries);
+      } catch (err) {
+        if (!(err instanceof CompactionProblems)) throw err;
+        return Promise.resolve({ ...result(err.message, { kind: "rejected", problems: err.problems }), isError: true });
+      }
+      const { compaction, tokensBefore, tokensAfter } = compacted;
+      deps.queueCompaction(toolCallId, compactionDrafts(view, compaction, compacted.edits, compacted));
+      return Promise.resolve(
+        result(compacted.text, {
+          kind: "compacted",
+          tokensBefore,
+          tokensAfter,
+          collapsed: compaction.squishes.length,
+          trimmed: compaction.trims.length,
+        }),
+      );
     },
   });
 

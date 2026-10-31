@@ -4,6 +4,7 @@ import { after, before, test } from "node:test";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { isRecordEntry } from "../extensions/percy/branch.ts";
 import { noteText, trimmedText } from "../extensions/percy/messages.ts";
+import { RETRY_GUIDANCE } from "../extensions/percy/validate.ts";
 import { dump, GREETING, type Harness, startHarness } from "./harness.ts";
 
 /** Message number (branch position) of the first entry matching. */
@@ -49,6 +50,9 @@ test("compact_in_place end to end", async () => {
   assert.match(index.text, new RegExp(`^${helloSeq} +user\\* `, "m"));
   // The call and its output share a row, under the call's id.
   assert.match(index.text, new RegExp(`^${firstCallSeq} +assistant +\\d+ +echo "FIRST_OUTPUT" → \\d+$`, "m"));
+  const listed = index.text.split("```")[1]!.trim().split("\n").length - 1;
+  assert.ok(listed > 0);
+  assert.deepEqual(index.details, { kind: "index", rows: listed });
 
   // Invalid requests come back as errors and record nothing.
   const invalid: [string, unknown][] = [
@@ -63,7 +67,9 @@ test("compact_in_place end to end", async () => {
     assert.ok(r.isError && r.text.includes(want), `want ${want}, got ${r.text}`);
   }
   await h.call("compact_in_place", { action: "compact", trim: ["nope"] });
-  assert.ok(h.lastToolResult().text.includes("trim nope: unknown id"));
+  const rejected = h.lastToolResult();
+  assert.equal(rejected.text, `trim nope: unknown id; use ids from the index. ${RETRY_GUIDANCE}`);
+  assert.deepEqual(rejected.details, { kind: "rejected", problems: ["trim nope: unknown id; use ids from the index"] });
   assert.equal(records(h), 0);
 
   // Ids may come as numbers.
@@ -74,6 +80,14 @@ test("compact_in_place end to end", async () => {
   });
   const done = h.lastToolResult();
   assert.ok(!done.isError && done.text.startsWith("Compacted: 1 collapsed, 1 trimmed"), done.text);
+  const [, tokensBefore, tokensAfter] = /history ~(\d+) -> ~(\d+) tokens/.exec(done.text)!;
+  assert.deepEqual(done.details, {
+    kind: "compacted",
+    tokensBefore: Number(tokensBefore),
+    tokensAfter: Number(tokensAfter),
+    collapsed: 1,
+    trimmed: 1,
+  });
   assert.equal(records(h), 1);
 
   // The request after the tool call, in the same turn, already sees the

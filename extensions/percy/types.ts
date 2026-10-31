@@ -109,6 +109,14 @@ export const TOGGLE_COMMAND = "percy:toggle-compaction";
 export const STATUS_COMMAND = "percy:status";
 /** customType of context nudges (size and idle), hidden by compacting. */
 export const NUDGE_TYPE = "percy-nudge";
+/** What a compact_in_place result reports, for its card. */
+export type CompactDetails =
+  /** An index listing rows the agent can compact. */
+  | { kind: "index"; rows: number }
+  | { kind: "compacted"; tokensBefore: number; tokensAfter: number; collapsed: number; trimmed: number }
+  /** A request with problems: nothing was compacted. */
+  | { kind: "rejected"; problems: string[] };
+
 /** A nudge's details: an idle nudge says so. */
 export type NudgeDetails = { idle?: boolean } | undefined;
 
