@@ -26,6 +26,15 @@ export const RETRY_GUIDANCE =
   "Do not shorten notes to fix IDs or ranges.";
 
 /**
+ * The error for a rejected request: its problems, all at once, then how to
+ * retry. One problem reads as a sentence; several as a list.
+ */
+function problemsError(problems: readonly string[]): Error {
+  if (problems.length === 1) return new Error(`${problems[0]}. ${RETRY_GUIDANCE}`);
+  return new Error(`${problems.length} problems:\n- ${problems.join("\n- ")}\n\n${RETRY_GUIDANCE}`);
+}
+
+/**
  * Reports whether a collapse may cover it only on its own: a message from the
  * user, a note from an earlier compaction, or a summary pi wrote. They carry
  * the task and its rules, and the agent tends to fold them into notes that
@@ -164,10 +173,7 @@ export function buildCompaction(history: readonly Item[], limits: Limits, input:
     c.squishes.push({ from: rows[i]![0]!.from, to: last.to, summary: col.note });
   }
 
-  if (problems.length === 1) throw new Error(`${problems[0]}. ${RETRY_GUIDANCE}`);
-  if (problems.length > 1) {
-    throw new Error(`${problems.length} problems:\n- ${problems.join("\n- ")}\n\n${RETRY_GUIDANCE}`);
-  }
+  if (problems.length > 0) throw problemsError(problems);
   // Squishes apply in order, each to the view the previous ones left; they
   // are disjoint, so order them as they appear.
   c.squishes.sort((a, b) => a.from - b.from);
@@ -220,9 +226,7 @@ export function compactRequest(
     }
     return [{ from: unit.from, to: unit.to, note }];
   });
-  if (unitProblems.length === 1) throw new Error(`${unitProblems[0]}. ${RETRY_GUIDANCE}`);
-  if (unitProblems.length > 1)
-    throw new Error(`${unitProblems.length} problems:\n- ${unitProblems.join("\n- ")}\n\n${RETRY_GUIDANCE}`);
+  if (unitProblems.length > 0) throw problemsError(unitProblems);
   const compaction = buildCompaction(history, limits, {
     ...(input.trim === undefined ? {} : { trim: input.trim }),
     collapse: [...(input.collapse ?? []), ...selected],
@@ -237,9 +241,7 @@ export function compactRequest(
   compaction.hiddenToolCallIds = evidence.toolCallIds;
   const after = applyCompaction(history, compaction, 0);
   const systemProblems = systemBoundaryProblems(after, constraints.systemBoundaries ?? []);
-  if (systemProblems.length === 1) throw new Error(`${systemProblems[0]}. ${RETRY_GUIDANCE}`);
-  if (systemProblems.length > 1)
-    throw new Error(`${systemProblems.length} problems:\n- ${systemProblems.join("\n- ")}\n\n${RETRY_GUIDANCE}`);
+  if (systemProblems.length > 0) throw problemsError(systemProblems);
   const tokensBefore = itemTokens(history);
   const tokensAfter = itemTokens(after);
   const tokensSaved = tokensBefore - tokensAfter;
