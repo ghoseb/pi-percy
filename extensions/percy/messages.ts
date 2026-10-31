@@ -17,21 +17,18 @@ export function isToolResult(m: AgentMessage): boolean {
   return m.role === "toolResult";
 }
 
+const EDITABLE_ROLES = ["user", "assistant", "toolResult", "custom"] as const;
+
+/** A message whose contribution to model context pi can edit. */
+export type EditableMessage = Extract<AgentMessage, { role: (typeof EDITABLE_ROLES)[number] }>;
+
 /**
  * Reports whether pi can edit m's contribution to model context: user,
  * assistant, tool result and custom messages. User bash runs and pi's
  * summaries are not editable, so they cannot be compacted.
  */
-export function isEditable(m: AgentMessage): boolean {
-  switch (m.role) {
-    case "user":
-    case "assistant":
-    case "toolResult":
-    case "custom":
-      return true;
-    default:
-      return false;
-  }
+export function isEditable(m: AgentMessage): m is EditableMessage {
+  return (EDITABLE_ROLES as readonly string[]).includes(m.role);
 }
 
 /**
@@ -39,15 +36,8 @@ export function isEditable(m: AgentMessage): boolean {
  * the role and metadata stay.
  */
 export function withText(m: AgentMessage, text: string): AgentMessage {
-  switch (m.role) {
-    case "user":
-    case "assistant":
-    case "toolResult":
-    case "custom":
-      return { ...m, content: [{ type: "text", text }] };
-    default:
-      throw new Error(`a ${m.role} message is not editable`);
-  }
+  if (!isEditable(m)) throw new Error(`a ${m.role} message is not editable`);
+  return { ...m, content: [{ type: "text", text }] };
 }
 
 /** What the model sees in place of squished messages. */

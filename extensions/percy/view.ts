@@ -192,21 +192,11 @@ export function editsBetween(before: readonly Item[], after: readonly Item[]): E
     const now = kept.get(it.from);
     if (now && sameContent(now.message, it.message)) continue;
     if (!isEditable(it.message)) throw new Error(`edits: message ${it.from} is not editable`);
-    edits.push({ seq: it.from, replacement: now ? { content: contentOf(now.message) } : null });
+    const m = now?.message;
+    if (m && !isEditable(m)) throw new Error(`a ${m.role} message is not editable`);
+    edits.push({ seq: it.from, replacement: m ? { content: m.content } : null });
   }
   return edits;
-}
-
-function contentOf(m: AgentMessage): Exclude<Edit["replacement"], null>["content"] {
-  switch (m.role) {
-    case "user":
-    case "assistant":
-    case "toolResult":
-    case "custom":
-      return m.content;
-    default:
-      throw new Error(`a ${m.role} message is not editable`);
-  }
 }
 
 function sameContent(a: AgentMessage, b: AgentMessage): boolean {
