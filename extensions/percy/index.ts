@@ -281,9 +281,9 @@ export function createPercyExtension(options: PercyOptions = {}) {
       warnedModel = warning ? key : undefined;
     };
 
-    // Drafts of compactions made this turn, by tool call id, and records
+    // The compaction made this turn (one at most), and records
     // /percy:compact-debug made since the last turn, until turn_end appends them.
-    const pending = new Map<string, SessionBoundaryDraft[]>();
+    let pendingCompaction: { toolCallId: string; drafts: SessionBoundaryDraft[] } | undefined;
     let debugDrafts: SessionBoundaryDraft[] = [];
 
     // Idle compaction state. The timer is armed when a run settles. A run
@@ -328,7 +328,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
     }
 
     pi.on("session_start", (_event, ctx) => {
-      pending.clear();
+      pendingCompaction = undefined;
       debugDrafts = [];
       cancelIdle();
       idleRun = false;
@@ -366,8 +366,8 @@ export function createPercyExtension(options: PercyOptions = {}) {
     // run is aborted. Should a run end without that boundary, its drafts would
     // otherwise block every later compaction.
     pi.on("agent_end", (_event, ctx) => {
-      if (pending.size === 0) return;
-      pending.clear();
+      if (!pendingCompaction) return;
+      pendingCompaction = undefined;
       ctx.ui.notify("pi-percy: a compaction was not applied: the run ended before its turn boundary", "warning");
     });
     pi.on("agent_settled", (event, ctx) => {
@@ -434,7 +434,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
         const view = currentView(ctx);
         if (params.action === "index")
           return Promise.resolve(text(compactIndex(view.items, settings.limits, view.systemBoundaries)));
-        if (pending.size > 0) {
+        if (pendingCompaction) {
           throw new Error(
             "A compaction from this turn is waiting to be applied; compact again after the next response.",
           );
@@ -445,7 +445,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
           ...(params.collapseUnits === undefined ? {} : { collapseUnits: params.collapseUnits }),
         };
         const result = compactRequest(view.items, settings.limits, input, { systemBoundaries: view.systemBoundaries });
-        pending.set(toolCallId, compactionDrafts(view, result.compaction, result.edits, result));
+        pendingCompaction = { toolCallId, drafts: compactionDrafts(view, result.compaction, result.edits, result) };
         return Promise.resolve(text(result.text));
       },
     });
@@ -641,8 +641,10 @@ export function createPercyExtension(options: PercyOptions = {}) {
     // the next model request. Right after a compaction the response's size
     // is from before it; the next response reports the new one.
     pi.on("turn_end", (event, ctx) => {
-      const drafts = [...debugDrafts, ...event.toolResults.flatMap((r) => pending.get(r.toolCallId) ?? [])];
-      pending.clear();
+      const compaction = pendingCompaction;
+      const applied = compaction && event.toolResults.some((r) => r.toolCallId === compaction.toolCallId);
+      const drafts = [...debugDrafts, ...(applied ? compaction.drafts : [])];
+      pendingCompaction = undefined;
       debugDrafts = [];
       if (drafts.length === 0) drafts.push(...nudgeAfter(event, ctx));
       if (drafts.length === 0) return;
