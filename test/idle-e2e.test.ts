@@ -81,6 +81,13 @@ test("a resumed session arms idle compaction from persisted activity", async () 
   try {
     await first.send("hello");
     await first.call("echo", { text: "OUTPUT ", times: 300 });
+    // Simulate a session loaded with a persisted system-prompt delta after an
+    // assistant response. The idle custom turn must not send it mid-history.
+    first.session.sessionManager.appendMessage({
+      role: "system",
+      content: "Changed system prompt.",
+      timestamp: Date.now(),
+    });
     manager = first.session.sessionManager;
   } finally {
     first.dispose();
@@ -94,6 +101,9 @@ test("a resumed session arms idle compaction from persisted activity", async () 
   try {
     await until(() => idleNudges(resumed).length === 1 && resumed.session.isIdle, "the resumed idle compaction turn");
     assert.equal(resumed.requests.length, 1);
+    const request = resumed.requests[0]!;
+    assert.equal(request[0]?.role, "system");
+    assert.equal(request.filter((message) => message.role === "system").length, 1);
   } finally {
     resumed.dispose();
   }
