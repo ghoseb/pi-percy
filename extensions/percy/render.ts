@@ -26,9 +26,14 @@ import type { CompactDetails, NudgeDetails } from "./types.ts";
 
 type CustomMessage<T = unknown> = Parameters<MessageRenderer<T>>[0];
 
+/** A card's bold [label] line. */
+function labelHeader(theme: Theme, label: string): Text {
+  return new Text(theme.fg("customMessageLabel", `\x1b[1m[${label}]\x1b[22m`), 0, 0);
+}
+
 function frame(theme: Theme, label: string, outputPad: number, body: Component): Box {
   const box = new Box(outputPad, 1, (t) => theme.bg("customMessageBg", t));
-  box.addChild(new Text(theme.fg("customMessageLabel", `\x1b[1m[${label}]\x1b[22m`), 0, 0));
+  box.addChild(labelHeader(theme, label));
   box.addChild(new Spacer(1));
   box.addChild(body);
   return box;
@@ -62,7 +67,7 @@ function expandableFrame(
   const update = () => {
     box.clear();
     const content = new Container();
-    content.addChild(new Text(theme.fg("customMessageLabel", `\x1b[1m[${label}]\x1b[22m`), 0, 0));
+    content.addChild(labelHeader(theme, label));
     content.addChild(new Spacer(1));
     content.addChild(isExpanded ? details() : collapsed(theme, summary));
     box.addChild(
