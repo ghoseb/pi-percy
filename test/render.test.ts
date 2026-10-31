@@ -73,6 +73,13 @@ test("a compact call shows its action and counts, not its raw arguments", () => 
   );
   assert.equal(compact, "compact in place 2 ranges, 2 tool outputs");
   assert.doesNotMatch(compact, /1357|summary/);
+  const units = plain(
+    renderCompactCall(
+      { action: "compact", collapseUnits: [{ id: "u1", note: "A note." }], collapse: [], trim: ["1437"] },
+      t,
+    ).render(200),
+  );
+  assert.equal(units, "compact in place 1 unit, 1 tool output");
   assert.equal(plain(renderCompactCall({ action: "index" }, t).render(200)), "compact in place index");
   assert.equal(plain(renderCompactCall({ action: "compact" }, t).render(200)), "compact in place compact");
 });

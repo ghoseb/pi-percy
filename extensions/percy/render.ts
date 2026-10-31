@@ -93,13 +93,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function renderCompactCall(args: unknown, theme: Theme): Component {
   const input = isRecord(args) ? args : {};
   const action = input["action"] === "index" ? "index" : "compact";
-  const ranges = arrayLength(input["collapse"]);
-  const outputs = arrayLength(input["trim"]);
+  const counts: [number, string][] = [
+    [arrayLength(input["collapse"]), "range"],
+    [arrayLength(input["collapseUnits"]), "unit"],
+    [arrayLength(input["trim"]), "tool output"],
+  ];
   const details =
     action === "index"
       ? "index"
-      : [ranges > 0 ? plural(ranges, "range") : "", outputs > 0 ? plural(outputs, "tool output") : ""]
-          .filter(Boolean)
+      : counts
+          .filter(([n]) => n > 0)
+          .map(([n, word]) => plural(n, word))
           .join(", ") || "compact";
   return new TruncatedText(
     theme.fg("toolTitle", theme.bold("compact in place")) + theme.fg("dim", ` ${details}`),
