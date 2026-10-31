@@ -11,10 +11,12 @@ import {
   editsBetween,
   safeCompactionEvidence,
   systemBoundaryProblems,
+  systemBoundaryViolations,
 } from "../extensions/percy/view.ts";
-import { DEFAULT_LIMITS, type Item } from "../extensions/percy/types.ts";
+import { type AgentMessage, DEFAULT_LIMITS, type Item } from "../extensions/percy/types.ts";
 import type { BranchView } from "../extensions/percy/branch.ts";
-import { assistant, nudge, user } from "./fixtures.ts";
+import { anthropicWire, misplacedSystemMessages } from "./anthropic-wire.ts";
+import { assistant, call, nudge, output, user } from "./fixtures.ts";
 
 /** A test-only projection of pi context edits, independent of applyCompaction. */
 function projectEdits(items: readonly Item[], edits: ReturnType<typeof editsBetween>): Item[] {
@@ -122,14 +124,15 @@ test("generated note ids resolve to their recorded original range", () => {
   );
 });
 
-// Safety: hiding a nudge immediately before a retained system boundary must
-// never introduce the assistant → system shape rejected by Anthropic.
+// Safety: hiding a nudge next to a retained system boundary must never leave
+// that system message between two assistant messages, which Anthropic rejects.
 test("generated evidence hiding preserves system boundaries", () => {
   fc.assert(
-    fc.property(fc.boolean(), (assistantBeforeSystem) => {
+    fc.property(fc.boolean(), fc.boolean(), (assistantBeforeSystem, nudgeAfterSystem) => {
       const first = assistantBeforeSystem ? assistant(1, "old reply") : user(1, "old request");
-      const items = [first, nudge(2)];
-      const boundaries = [3];
+      // The system message sits right before or right after the nudge.
+      const items = [first, nudge(nudgeAfterSystem ? 3 : 2), assistant(4, "next reply")];
+      const boundaries = [nudgeAfterSystem ? 2 : 3];
       const evidence = safeCompactionEvidence(items, compactionEvidence(items), boundaries);
       const after = applyCompaction(
         items,
@@ -139,5 +142,70 @@ test("generated evidence hiding preserves system boundaries", () => {
       assert.deepEqual(systemBoundaryProblems(after, boundaries), []);
     }),
     { numRuns: 2_000 },
+  );
+});
+
+// Fidelity: percy's system-boundary rule must agree with what pi-ai actually
+// sends to Anthropic. Generated histories mix user-side messages (some empty,
+// which pi-ai drops), nudges, replies (some errored, which pi-ai drops), tool
+// calls with results, and system messages, also between a call and its
+// result. A user message ends each history, as the next request appends one.
+type Piece = "user" | "emptyUser" | "nudge" | "reply" | "errorReply" | "tool" | "toolWithSystem" | "system";
+const PIECES: Piece[] = ["user", "emptyUser", "nudge", "reply", "errorReply", "tool", "toolWithSystem", "system"];
+
+function history(pieces: readonly Piece[]): { messages: AgentMessage[]; items: Item[]; boundaries: number[] } {
+  const messages: AgentMessage[] = [];
+  const items: Item[] = [];
+  const boundaries: number[] = [];
+  const add = (make: (seq: number) => Item) => {
+    const it = make(messages.length + 1);
+    messages.push(it.message);
+    items.push(it);
+  };
+  const system = () => {
+    messages.push({ role: "system", content: "Changed prompt.", timestamp: messages.length + 1 });
+    boundaries.push(messages.length);
+  };
+  add((n) => user(n, "start"));
+  pieces.forEach((piece, i) => {
+    const id = `t${i}`;
+    switch (piece) {
+      case "user":
+        return add((n) => user(n, "more"));
+      case "emptyUser":
+        return add((n) => user(n, "  "));
+      case "nudge":
+        return add((n) => nudge(n));
+      case "reply":
+        return add((n) => assistant(n, "reply"));
+      case "errorReply":
+        return add((n) => {
+          const it = assistant(n, "partial");
+          return { ...it, message: { ...it.message, stopReason: "error" } as Item["message"] };
+        });
+      case "tool":
+        add((n) => call(n, id));
+        return add((n) => output(n, id, "out"));
+      case "toolWithSystem":
+        add((n) => call(n, id));
+        system();
+        return add((n) => output(n, id, "out"));
+      case "system":
+        return system();
+    }
+  });
+  add((n) => user(n, "next request"));
+  return { messages, items, boundaries };
+}
+
+test("generated system boundaries match pi-ai's Anthropic request", async () => {
+  await fc.assert(
+    fc.asyncProperty(fc.array(fc.constantFrom(...PIECES), { minLength: 1, maxLength: 12 }), async (pieces) => {
+      const { messages, items, boundaries } = history(pieces);
+      const percy = systemBoundaryViolations(items, boundaries).length > 0;
+      const wire = misplacedSystemMessages(await anthropicWire(messages)).length > 0;
+      assert.equal(percy, wire, `percy ${percy}, wire ${wire}: ${pieces.join(" ")}`);
+    }),
+    { numRuns: 1_000 },
   );
 });

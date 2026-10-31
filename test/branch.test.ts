@@ -5,10 +5,11 @@ import { type SessionBoundaryDraft, SessionManager } from "@earendil-works/pi-co
 import { branchView, compactionDrafts } from "../extensions/percy/branch.ts";
 import { noteText, trimmedText } from "../extensions/percy/messages.ts";
 import { renderOriginals, resolveIds } from "../extensions/percy/recall.ts";
-import { DEFAULT_LIMITS, emptyCompaction, type Item, NUDGE_TYPE } from "../extensions/percy/types.ts";
+import { COMPACT_TOOL, DEFAULT_LIMITS, emptyCompaction, type Item, NUDGE_TYPE } from "../extensions/percy/types.ts";
 import { compactRequest } from "../extensions/percy/validate.ts";
 import { applyCompaction, editsBetween } from "../extensions/percy/view.ts";
-import { assistant, call, output, spans, textOf, user, x } from "./fixtures.ts";
+import { anthropicWire, misplacedSystemMessages } from "./anthropic-wire.ts";
+import { assistant, call, compactCall, output, spans, textOf, user, x } from "./fixtures.ts";
 
 type Appendable = Parameters<SessionManager["appendMessage"]>[0];
 const limits = { ...DEFAULT_LIMITS, keepRecentTokens: 1 };
@@ -130,16 +131,15 @@ test("system messages are left out of the view", () => {
   assert.deepEqual(v.systemBoundaries, [1]);
 });
 
-test("compaction retains a nudge that keeps a system message after a user turn", () => {
+const roles = (sm: SessionManager) =>
+  sm.buildSessionProjection().entries.flatMap((entry) => entry.messages.map((message) => message.role));
+
+const projected = (sm: SessionManager) => sm.buildSessionProjection().entries.flatMap((entry) => entry.messages);
+
+test("compaction hides a nudge before a system message when a user message follows it", async () => {
   const sm = SessionManager.inMemory("/tmp");
   sm.appendMessage(assistant(0, x(400)).message as Appendable);
-  sm.appendMessage({
-    role: "custom",
-    customType: NUDGE_TYPE,
-    content: [{ type: "text", text: "Context is 200k." }],
-    display: true,
-    timestamp: 2,
-  });
+  sm.appendCustomMessageEntry(NUDGE_TYPE, "Context is 200k.", true);
   sm.appendMessage({ role: "system", content: "New system instructions.", timestamp: 3 });
   sm.appendMessage(user(0, "current request").message as Appendable);
   const v = view(sm);
@@ -150,23 +150,55 @@ test("compaction retains a nudge that keeps a system message after a user turn",
     { collapse: [{ from: "1", to: "1", note: "old work" }] },
     { systemBoundaries: v.systemBoundaries },
   );
-  // The nudge normally hides as compaction evidence, but it is the only
-  // user-like message immediately before this retained system entry.
-  assert.deepEqual(result.compaction.hiddenSeqs, []);
+  // pi-ai sends the system message right before the next assistant message,
+  // after the user message, so the nudge is not needed there.
+  assert.deepEqual(result.compaction.hiddenSeqs, [2]);
   commit(sm, compactionDrafts(v, result.compaction, result.edits, result));
-  const roles = sm.buildSessionProjection().entries.flatMap((entry) => entry.messages.map((message) => message.role));
-  assert.deepEqual(roles, ["assistant", "custom", "system", "user"]);
+  assert.deepEqual(roles(sm), ["assistant", "system", "user"]);
+  assert.deepEqual(misplacedSystemMessages(await anthropicWire(projected(sm))), []);
 });
 
-test("compaction validation ignores an old system-boundary problem", () => {
+// Minimized form of the corrupted pi-percy session: a tool toggle between
+// turns persisted a system message after the final reply, a nudge and a
+// compact_in_place call followed, and a later compaction hid both, leaving
+// the system message between two assistant messages.
+test("compaction keeps the nudge between a system message and the next assistant message", async () => {
+  const sm = session([user(0, "do it"), assistant(0, `Done: ${x(400)}`)]);
+  sm.appendMessage({ role: "system", content: "Tools changed.", timestamp: 3 });
+  sm.appendCustomMessageEntry(NUDGE_TYPE, "Context is 200k.", true);
+  for (const it of [
+    compactCall(0, "c1", { action: "compact" }),
+    output(0, "c1", "Compacted.", COMPACT_TOOL),
+    assistant(0, `After compacting: ${x(400)}`),
+    user(0, "next"),
+    assistant(0, "ok"),
+  ])
+    sm.appendMessage(it.message as Appendable);
+  const v = view(sm);
+  assert.deepEqual(v.systemBoundaries, [3]);
+  const result = compactRequest(
+    v.items,
+    limits,
+    { collapse: [{ from: "7", to: "7", note: "after compacting" }] },
+    { systemBoundaries: v.systemBoundaries },
+  );
+  // Hiding the nudge would leave 2 (assistant) → system → 5 (assistant).
+  // Hiding only the earlier compact_in_place call is safe.
+  assert.deepEqual(result.compaction.hiddenSeqs, []);
+  assert.deepEqual(result.compaction.hiddenToolCallIds, ["c1"]);
+  commit(sm, compactionDrafts(v, result.compaction, result.edits, result));
+  assert.deepEqual(roles(sm), ["user", "assistant", "system", "custom", "assistant", "user", "assistant"]);
+  assert.deepEqual(misplacedSystemMessages(await anthropicWire(projected(sm))), []);
+});
+
+test("a system message between an assistant and a user message is valid", async () => {
   const sm = SessionManager.inMemory("/tmp");
   sm.appendMessage(assistant(0, x(400)).message as Appendable);
-  sm.appendMessage({ role: "system", content: "Already misplaced system instructions.", timestamp: 2 });
+  sm.appendMessage({ role: "system", content: "New system instructions.", timestamp: 2 });
   sm.appendMessage(user(0, "current request").message as Appendable);
   const v = view(sm);
   assert.deepEqual(v.systemBoundaries, [2]);
-  // This session already has the provider-invalid order. Validation must not
-  // report it again when an operation leaves that existing order alone.
+  assert.deepEqual(misplacedSystemMessages(await anthropicWire(projected(sm))), []);
   assert.doesNotThrow(() =>
     compactRequest(
       v.items,
@@ -174,6 +206,27 @@ test("compaction validation ignores an old system-boundary problem", () => {
       { collapse: [{ from: "1", to: "1", note: "old work" }] },
       { systemBoundaries: v.systemBoundaries },
     ),
+  );
+});
+
+test("compaction refuses while a system message sits between two assistant messages", async () => {
+  const sm = SessionManager.inMemory("/tmp");
+  sm.appendMessage(user(0, "do it").message as Appendable);
+  sm.appendMessage(assistant(0, x(400)).message as Appendable);
+  sm.appendMessage({ role: "system", content: "Misplaced system instructions.", timestamp: 3 });
+  sm.appendMessage(assistant(0, "more").message as Appendable);
+  sm.appendMessage(user(0, "current request").message as Appendable);
+  const v = view(sm);
+  assert.deepEqual(misplacedSystemMessages(await anthropicWire(projected(sm))).length, 1);
+  assert.throws(
+    () =>
+      compactRequest(
+        v.items,
+        limits,
+        { collapse: [{ from: "2", to: "2", note: "old work" }] },
+        { systemBoundaries: v.systemBoundaries },
+      ),
+    /system message 3 would sit between assistant messages 2-2 and 4-4/,
   );
 });
 

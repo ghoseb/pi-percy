@@ -16,7 +16,6 @@ import {
   compactionEvidence,
   compactionView,
   editsBetween,
-  invalidSystemBoundaries,
   safeCompactionEvidence,
   systemBoundaryProblems,
 } from "./view.ts";
@@ -230,18 +229,16 @@ export function compactRequest(
     ...(input.trim === undefined ? {} : { trim: input.trim }),
     collapse: [...(input.collapse ?? []), ...selected],
   });
-  const existingSystemProblems = invalidSystemBoundaries(history, constraints.systemBoundaries ?? []);
   const beforeHidingEvidence = applyCompaction(history, compaction, 0);
   const evidence = safeCompactionEvidence(
     beforeHidingEvidence,
     compactionEvidence(beforeHidingEvidence),
     constraints.systemBoundaries ?? [],
-    existingSystemProblems,
   );
   compaction.hiddenSeqs = evidence.seqs;
   compaction.hiddenToolCallIds = evidence.toolCallIds;
   const after = applyCompaction(history, compaction, 0);
-  const systemProblems = systemBoundaryProblems(after, constraints.systemBoundaries ?? [], existingSystemProblems);
+  const systemProblems = systemBoundaryProblems(after, constraints.systemBoundaries ?? []);
   if (systemProblems.length === 1) throw new Error(`${systemProblems[0]}. ${RETRY_GUIDANCE}`);
   if (systemProblems.length > 1)
     throw new Error(`${systemProblems.length} problems:\n- ${systemProblems.join("\n- ")}\n\n${RETRY_GUIDANCE}`);

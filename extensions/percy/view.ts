@@ -46,65 +46,96 @@ export function applyCompaction(items: readonly Item[], c: Compaction, recordSeq
 }
 
 /**
- * Checks Pi's retained mid-conversation system messages. Anthropic permits a
- * system message after a user turn, but rejects one that compaction leaves
- * directly after an assistant message. System messages are not compactable,
- * so branchView records their positions separately from its editable items.
+ * Whether pi-ai sends m to the provider. It drops errored and aborted
+ * assistant responses (transformMessages) and user-side messages without text
+ * or images (the Anthropic converter); convertToLlm drops bash executions
+ * excluded from context.
  */
-/** The system-entry positions that currently have an invalid assistant predecessor. */
-export function invalidSystemBoundaries(items: readonly Item[], systemBoundaries: readonly number[]): number[] {
-  const invalid: number[] = [];
-  for (const system of systemBoundaries) {
-    const previous = items.findLast((item) => item.from < system);
-    if (previous?.message.role === "assistant") invalid.push(system);
+function sentToProvider(m: AgentMessage): boolean {
+  switch (m.role) {
+    case "assistant":
+      return m.stopReason !== "error" && m.stopReason !== "aborted";
+    case "bashExecution":
+      return m.excludeFromContext !== true;
+    case "user":
+    case "custom":
+      return typeof m.content === "string"
+        ? m.content.trim().length > 0
+        : m.content.some((c) => c.type === "image" || (c.type === "text" && c.text.trim().length > 0));
+    default:
+      return true;
   }
-  return invalid;
 }
 
-export function systemBoundaryProblems(
-  items: readonly Item[],
-  systemBoundaries: readonly number[],
-  existing: readonly number[] = [],
-): string[] {
-  const problems: string[] = [];
-  const allowed = new Set(existing);
-  for (const system of systemBoundaries) {
-    // A collapsed item may span over the omitted system entry. Its carrier is
-    // still the message Pi sends immediately before that system message.
-    const previous = items.findLast((item) => item.from < system);
-    if (previous?.message.role === "assistant" && !allowed.has(system)) {
-      problems.push(
-        `system message ${system} would follow assistant message ${previous.from}-${previous.to}; preserve a user message before that system boundary`,
-      );
-    }
-  }
-  return problems;
+/** A retained system message that the provider would receive between two assistant messages. */
+export interface SystemBoundaryViolation {
+  system: number;
+  before: Item;
+  after: Item;
 }
 
 /**
- * Hide compaction evidence when it does not make a retained system message
- * follow an assistant. A reload can insert a system message immediately after
- * a percy nudge; retaining that one nudge is safer than producing a provider-
- * invalid request. Candidates apply in the same order as hideItems.
+ * Checks Pi's retained mid-conversation system messages against what pi-ai
+ * sends. pi-ai holds a later system message back and emits it directly before
+ * the next assistant message, so the provider sees it after whatever message
+ * precedes that assistant. Anthropic rejects a system message that follows an
+ * assistant message. So a system message is invalid exactly when the sent
+ * messages on both sides of it are assistant messages: nothing user-side sits
+ * between it and the next assistant message, and the message before it is an
+ * assistant message. A note whose carrier is an assistant message counts as
+ * one, at its carrier's position (from). A system message with no assistant
+ * message after it is valid: the next request appends a user-side message.
+ * System messages are not compactable, so branchView records their positions
+ * separately from its editable items.
+ */
+export function systemBoundaryViolations(
+  items: readonly Item[],
+  systemBoundaries: readonly number[],
+): SystemBoundaryViolation[] {
+  const sent = items.filter((item) => sentToProvider(item.message));
+  return systemBoundaries.flatMap((system) => {
+    const next = sent.findIndex((item) => item.from > system);
+    if (next <= 0) return [];
+    const before = sent[next - 1]!;
+    const after = sent[next]!;
+    if (before.message.role !== "assistant" || after.message.role !== "assistant") return [];
+    return [{ system, before, after }];
+  });
+}
+
+export function systemBoundaryProblems(items: readonly Item[], systemBoundaries: readonly number[]): string[] {
+  return systemBoundaryViolations(items, systemBoundaries).map(
+    ({ system, before, after }) =>
+      `system message ${system} would sit between assistant messages ${before.from}-${before.to} and ` +
+      `${after.from}-${after.to}; keep a user message, tool result, or nudge next to that system message`,
+  );
+}
+
+/**
+ * Hide compaction evidence when it does not leave a retained system message
+ * between two assistant messages (see systemBoundaryViolations). A tool change
+ * between turns persists a system message right before the next user-side
+ * message, which can be a percy nudge; retaining that one nudge is safer than
+ * producing a provider-invalid request. Candidates apply in the same order as
+ * hideItems.
  */
 export function safeCompactionEvidence(
   items: readonly Item[],
   evidence: ReturnType<typeof compactionEvidence>,
   systemBoundaries: readonly number[],
-  existing: readonly number[] = [],
 ): ReturnType<typeof compactionEvidence> {
   let view = [...items];
   const seqs: number[] = [];
   const toolCallIds: string[] = [];
   for (const seq of evidence.seqs) {
     const next = hideItems(view, [seq], []);
-    if (systemBoundaryProblems(next, systemBoundaries, existing).length > 0) continue;
+    if (systemBoundaryProblems(next, systemBoundaries).length > 0) continue;
     view = next;
     seqs.push(seq);
   }
   for (const toolCallId of evidence.toolCallIds) {
     const next = hideItems(view, [], [toolCallId]);
-    if (systemBoundaryProblems(next, systemBoundaries, existing).length > 0) continue;
+    if (systemBoundaryProblems(next, systemBoundaries).length > 0) continue;
     view = next;
     toolCallIds.push(toolCallId);
   }
