@@ -3,6 +3,7 @@ import { isEditable, isToolResult, isTrimmedOutput } from "./messages.ts";
 import { indexOfRow, itemTokens, orphanCall, orphanOutput, type Row, recentStart, rowId, splitRows } from "./rows.ts";
 import { aloneRows, compactionUnits } from "./units.ts";
 import {
+  type Collapse,
   type Compaction,
   type CompactInput,
   type Edit,
@@ -74,26 +75,35 @@ function suggestRanges(rows: readonly Row[], alone: readonly boolean[], i: numbe
   return ranges.join(", ");
 }
 
+/** A collapse to check: a range the agent gave, or the range of a unit it selected. */
+type CollapseRequest = Collapse & { unit?: string };
+
 /**
  * Turns the agent's request into a record, validating it against the
  * compaction view of history and its recent part. Throws with every problem
- * at once.
+ * at once: the given problems (found earlier in the same request), then the
+ * trims', then the collapses'.
  */
-export function buildCompaction(history: readonly Item[], limits: Limits, input: CompactInput): Compaction {
+export function buildCompaction(
+  history: readonly Item[],
+  limits: Limits,
+  input: { trim?: readonly string[]; collapse?: readonly CollapseRequest[] },
+  problems: readonly string[] = [],
+): Compaction {
   const trim = input.trim ?? [];
   const collapse = input.collapse ?? [];
-  if (trim.length === 0 && collapse.length === 0) {
+  if (trim.length === 0 && collapse.length === 0 && problems.length === 0) {
     throw new Error("nothing to compact: give trim and/or collapse");
   }
   const items = compactionView(history);
   const { rows, recentRow: recent } = splitRows(items, recentStart(items, limits.keepRecentTokens));
   const alone = aloneRows(rows);
   const c = emptyCompaction();
-  const problems: string[] = [];
+  const found = [...problems];
 
   const trimmed: number[] = [];
   for (const id of trim) {
-    const problem = (text: string) => problems.push(`trim ${id}: ${text}`);
+    const problem = (text: string) => found.push(`trim ${id}: ${text}`);
     const r = indexOfRow(rows, id);
     if (r < 0) problem("unknown id; use ids from the index");
     else if (r >= recent) problem("in the recent part, which is kept as is");
@@ -108,7 +118,9 @@ export function buildCompaction(history: readonly Item[], limits: Limits, input:
 
   const spans: { i: number; j: number }[] = [];
   for (const col of collapse) {
-    const problem = (text: string) => problems.push(`collapse ${col.from}-${col.to}: ${text}`);
+    const name = col.unit === undefined ? "collapse" : `collapse unit ${col.unit}`;
+    const range = col.unit === undefined ? `${col.from}-${col.to}` : `(${col.from}-${col.to})`;
+    const problem = (text: string) => found.push(`${name} ${range}: ${text}`);
     const i = indexOfRow(rows, col.from);
     const j = indexOfRow(rows, col.to);
     if (i < 0 || j < 0) {
@@ -173,7 +185,7 @@ export function buildCompaction(history: readonly Item[], limits: Limits, input:
     c.squishes.push({ from: rows[i]![0]!.from, to: last.to, summary: col.note });
   }
 
-  if (problems.length > 0) throw problemsError(problems);
+  if (found.length > 0) throw problemsError(found);
   // Squishes apply in order, each to the view the previous ones left; they
   // are disjoint, so order them as they appear.
   c.squishes.sort((a, b) => a.from - b.from);
@@ -213,7 +225,7 @@ export function compactRequest(
   const units = new Map(available.units.map((unit) => [unit.id, unit]));
   const unitProblems: string[] = [];
   const seenUnits = new Set<string>();
-  const selected = unitSelections.flatMap(({ id, note }) => {
+  const selected = unitSelections.flatMap(({ id, note }): CollapseRequest[] => {
     if (seenUnits.has(id)) {
       unitProblems.push(`collapse unit ${id}: listed twice`);
       return [];
@@ -224,13 +236,17 @@ export function compactRequest(
       unitProblems.push(`collapse unit ${id}: unknown id; use ids from the index`);
       return [];
     }
-    return [{ from: unit.from, to: unit.to, note }];
+    return [{ from: unit.from, to: unit.to, note, unit: id }];
   });
-  if (unitProblems.length > 0) throw problemsError(unitProblems);
-  const compaction = buildCompaction(history, limits, {
-    ...(input.trim === undefined ? {} : { trim: input.trim }),
-    collapse: [...(input.collapse ?? []), ...selected],
-  });
+  const compaction = buildCompaction(
+    history,
+    limits,
+    {
+      ...(input.trim === undefined ? {} : { trim: input.trim }),
+      collapse: [...(input.collapse ?? []), ...selected],
+    },
+    unitProblems,
+  );
   const beforeHidingEvidence = applyCompaction(history, compaction, 0);
   const evidence = safeCompactionEvidence(
     beforeHidingEvidence,

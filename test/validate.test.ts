@@ -173,6 +173,30 @@ test("compactRequest expands a safe collapse unit", () => {
   assert.deepEqual(result.compaction.squishes, [{ from: 2, to: 4, summary: "Completed the old task." }]);
 });
 
+// Shelley's linter answers a request with all its problems, so one retry
+// can fix them all.
+test("compactRequest reports unit, trim and collapse problems at once", () => {
+  const history = [user(1, "do it"), call(2, "a"), output(3, "a", x(400)), assistant(4, "done"), user(5, x(400))];
+  assert.throws(
+    () =>
+      compactRequest(history, limits(1), {
+        trim: ["1"],
+        collapseUnits: [
+          { id: "u9", note: "Gone." },
+          { id: "u2", note: " " },
+        ],
+      }),
+    {
+      message:
+        "3 problems:\n" +
+        "- collapse unit u9: unknown id; use ids from the index\n" +
+        "- trim 1: has no tool output\n" +
+        "- collapse unit u2 (2-4): note is empty\n\n" +
+        RETRY_GUIDANCE,
+    },
+  );
+});
+
 // Port of Shelley's TestBuildCompactionRetryPreservesNotes.
 test("retry guidance asks to preserve notes", () => {
   const note = "Repeated push: everything up to date.\nIndex size 256: 12,906 ns → 6,237 ns.";
