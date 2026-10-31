@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type SessionBoundaryDraft, SessionManager } from "@earendil-works/pi-coding-agent";
-import { branchView, compactionDrafts } from "../extensions/percy/branch.ts";
+import { branchView, compactionDrafts, compactionSplitBy } from "../extensions/percy/branch.ts";
 import { noteText, trimmedText } from "../extensions/percy/messages.ts";
 import { renderOriginals, resolveIds } from "../extensions/percy/recall.ts";
 import { COMPACT_TOOL, DEFAULT_LIMITS, emptyCompaction, type Item, NUDGE_TYPE } from "../extensions/percy/types.ts";
@@ -46,6 +46,29 @@ const base = () => [
   assistant(0, "built"),
   user(0, "next"),
 ];
+
+test("compactionSplitBy: a jump may not end a branch inside a compaction", () => {
+  const sm = session(base());
+  const before = sm.getLeafId();
+  compact(sm, { trim: ["3"], collapse: [{ from: "2", to: "2", note: "Planned the build." }] });
+  sm.appendMessage(assistant(0, "after").message as Appendable);
+  const branch = sm.getBranch();
+  const record = branch.findIndex((e) => e.type === "custom");
+  const group = branch.slice(record, branch.length - 1);
+  assert.ok(group.length >= 3 && group.slice(1).every((e) => e.type === "context_edit"), "a record and its edits");
+  const last = group.at(-1)!.id;
+  for (const e of group.slice(0, -1)) {
+    assert.deepEqual(compactionSplitBy(sm.getEntries(), e.id), { before, last }, e.type);
+  }
+  for (const e of [...branch.slice(0, record), group.at(-1)!, branch.at(-1)!]) {
+    assert.equal(compactionSplitBy(sm.getEntries(), e.id), undefined, e.type);
+  }
+  // A branch continued from inside the compaction, as older pi-percy allowed:
+  // the edits after the target, on their own branch, still complete it.
+  sm.branch(group[1]!.id);
+  sm.appendMessage(assistant(0, "elsewhere").message as Appendable);
+  assert.deepEqual(compactionSplitBy(sm.getEntries(), group[1]!.id), { before, last });
+});
 
 test("message numbers are branch positions", () => {
   const sm = session(base());

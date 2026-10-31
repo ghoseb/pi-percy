@@ -583,7 +583,11 @@ async function run(h: Harness, world: World, a: Action): Promise<Harness> {
       const sm = h.session.sessionManager;
       const target = chooser(a.seed).pick(sm.getEntries().filter((e) => e.id !== sm.getLeafId()));
       if (!target) return h;
-      await h.session.navigateTree(target.id, { summarize: a.summarize });
+      const { cancelled } = await h.session.navigateTree(target.id, { summarize: a.summarize });
+      if (cancelled) {
+        count("tree jumps cancelled");
+        return h;
+      }
       // With a summary, pi adds it after the point jumped to.
       const leaf = sm.getLeafEntry();
       const at = leaf?.type === "branch_summary" ? leaf.parentId : leaf?.id;
@@ -604,6 +608,21 @@ const ORIGINAL_BUG: Action[] = [
   { kind: "externalTools" },
   { kind: "idle", answer: "valid", seed: 1 },
   { kind: "prompt", text: "more" },
+];
+
+// A /tree jump to an edit in the middle of the idle run's compaction, which
+// left the branch with half of it: a system message between assistant messages.
+const TREE_INTO_COMPACTION: Action[] = [
+  { kind: "tools", sizes: [1000] },
+  { kind: "prompt", text: "hello" },
+  { kind: "queue", modes: ["externalTools", "customSteer"], during: "tool" },
+  { kind: "compact", answer: "valid", seed: 0 },
+  { kind: "tools", sizes: [1000] },
+  { kind: "idle", answer: "valid", seed: 182738411 },
+  { kind: "prompt", text: "hello" },
+  { kind: "abort" },
+  { kind: "tree", seed: 138567732, summarize: false },
+  { kind: "toggle" },
 ];
 
 /** The branch, one line per entry, for PERCY_PBT_DUMP. */
@@ -680,7 +699,7 @@ test("a pi-percy session stays consistent under any sequence of actions", { time
     numRuns: RUNS,
     ...(SEED === undefined ? {} : { seed: SEED }),
     endOnFailure: false,
-    examples: [[ORIGINAL_BUG]],
+    examples: [[ORIGINAL_BUG], [TREE_INTO_COMPACTION]],
   });
   if (process.env["PERCY_PBT_STATS"]) console.log(Object.fromEntries(stats));
 });

@@ -31,6 +31,7 @@ import {
   type BranchView,
   branchView,
   compactionDrafts,
+  compactionSplitBy,
   isNudgeEntry,
   isRecordEntry,
   RECORD_TYPE,
@@ -343,6 +344,17 @@ export function createPercyExtension(options: PercyOptions = {}) {
       armIdle(ctx);
     });
     pi.on("model_select", (event, ctx) => checkModel(ctx, event.model));
+    // A branch ending inside a compaction would hold half of it, which no
+    // validation checked. pi lets an extension cancel a jump, not redirect it.
+    pi.on("session_before_tree", (event, ctx) => {
+      if (!compactionSplitBy(ctx.sessionManager.getEntries(), event.preparation.targetId)) return;
+      ctx.ui.notify(
+        "pi-percy: that entry is inside a compaction, which is one change. " +
+          "Pick its last context edit to keep the compaction, or the entry before its record to go back before it.",
+        "warning",
+      );
+      return { cancel: true };
+    });
     pi.on("session_shutdown", cancelIdle);
     pi.on("input", () => {
       cancelIdle();

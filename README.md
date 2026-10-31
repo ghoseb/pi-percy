@@ -87,6 +87,8 @@ recall { ids: ["42", "50-57", "s103.0"] }
 
 `/tree` shows raw `percy-nudge`, `percy-compaction`, and `context_edit` entries. These records provide a durable audit trail for the active branch. After compaction, Pi does not send the related nudge or completed compaction call to the model.
 
+A compaction is one change: a `percy-compaction` record and the `context_edit` entries after it. pi-percy cancels a `/tree` jump to that record or to any of its edits except the last, because the branch would then hold only part of the compaction. To keep the compaction, pick its last `context_edit`. To go back before it, pick the entry before its record.
+
 ### 4. pi-percy compacts an idle conversation once
 
 pi-percy starts one housekeeping turn after the configured idle time. It starts this turn only when the context is large enough and has content older than the recent part. The idle prompt tells the model not to reply to the user.

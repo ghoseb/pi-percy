@@ -87,6 +87,41 @@ test("/percy:status reports state without a model request", async () => {
   }
 });
 
+test("a /tree jump into the middle of a compaction is cancelled", async () => {
+  const h = await startHarness({ limits: { keepRecentTokens: 1 } });
+  try {
+    await h.call("echo", { text: "word ", times: 400 });
+    await h.send("hello");
+    const branch = h.session.sessionManager.getBranch();
+    const seqOf = (match: (e: SessionEntry) => boolean) => String(branch.findIndex(match) + 1);
+    const greeting = seqOf((e) => JSON.stringify(e).includes(GREETING));
+    // Trim the echo call's output, and collapse the greeting: several edits.
+    await h.call("compact_in_place", {
+      action: "compact",
+      trim: [seqOf((e) => e.type === "message" && e.message.role === "assistant")],
+      collapse: [{ from: greeting, to: greeting, note: "greeted" }],
+    });
+    assert.equal(h.lastToolResult().isError, false, h.lastToolResult().text);
+    const after = h.session.sessionManager.getBranch();
+    const record = after.findIndex(isRecordEntry);
+    const end = after.findIndex((e, i) => i > record && e.type !== "context_edit");
+    const edits = after.slice(record + 1, end < 0 ? undefined : end);
+    assert.ok(edits.length >= 2, "a compaction with several edits");
+    const leaf = h.session.sessionManager.getLeafId();
+
+    for (const target of [after[record]!, edits[0]!]) {
+      const result = await h.session.navigateTree(target.id);
+      assert.equal(result.cancelled, true, target.type);
+      assert.equal(h.session.sessionManager.getLeafId(), leaf);
+    }
+    assert.match(h.notifications.at(-1)?.message ?? "", /inside a compaction/);
+    assert.equal((await h.session.navigateTree(edits.at(-1)!.id)).cancelled, false, "its last edit");
+    assert.equal((await h.session.navigateTree(after[record]!.parentId!)).cancelled, false, "before its record");
+  } finally {
+    h.dispose();
+  }
+});
+
 test("/percy:rewind-compaction returns to before the newest compaction without a model request", async () => {
   const h = await startHarness({ limits: { keepRecentTokens: 1 } });
   try {

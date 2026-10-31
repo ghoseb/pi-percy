@@ -118,6 +118,31 @@ export function branchView(branch: readonly SessionEntry[], projection: SessionP
 }
 
 /**
+ * The compaction that a /tree jump to targetId would split: the target is its
+ * record or one of its context edits before the last. A compaction is one
+ * change, so a branch holds all of its edits or none of them. Returns the
+ * entry before its record and its last edit, the places to jump to instead.
+ * entries are the session's, from any branch.
+ */
+export function compactionSplitBy(
+  entries: readonly SessionEntry[],
+  targetId: string,
+): { before: string | null; last: string } | undefined {
+  const byId = new Map(entries.map((e) => [e.id, e]));
+  // pi appends a compaction's record and edits as one chain.
+  const nextEdit = new Map<string, string>();
+  for (const e of entries) {
+    if (e.type === "context_edit" && e.parentId !== null && !nextEdit.has(e.parentId)) nextEdit.set(e.parentId, e.id);
+  }
+  let record = byId.get(targetId);
+  while (record?.type === "context_edit") record = record.parentId === null ? undefined : byId.get(record.parentId);
+  if (!record || !isRecordEntry(record) || !nextEdit.has(targetId)) return undefined;
+  let last = targetId;
+  for (let next = nextEdit.get(last); next !== undefined; next = nextEdit.get(last)) last = next;
+  return { before: record.parentId, last };
+}
+
+/**
  * The session entries that realize a compaction of view: its record, then its
  * context edits. They are appended at the next turn boundary.
  */
