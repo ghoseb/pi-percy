@@ -125,6 +125,8 @@ interface World {
   overflow: boolean;
   /** Texts queued so far, each unique. */
   queued: string[];
+  /** Where /tree jumps left the leaf: the user chose to continue from there. */
+  treeLeaves: Set<string>;
   /** The external extension's API, set when it loads. */
   pi?: ExtensionAPI;
 }
@@ -301,6 +303,9 @@ const respond = (world: World) => async (messages: Message[]) => {
 
 // --- Invariants.
 
+const isContextNudge = (e: SessionEntry) =>
+  e.type === "custom_message" && e.customType === NUDGE_TYPE && !isIdleNudge(e);
+
 const isIdleNudge = (e: SessionEntry) =>
   e.type === "custom_message" &&
   e.customType === NUDGE_TYPE &&
@@ -409,6 +414,28 @@ async function checkSession(h: Harness, world: World, checked: Checked) {
     }
     assert.ok(idleSinceUser <= 1, "a second idle run without new input");
   }
+
+  // 6. As in Shelley, a context nudge goes in right before a model request:
+  // the next message is the model's response, never a user or extension
+  // message. pi adds its system deltas and its own compaction right before a
+  // request, so those can come between, and a /tree jump to one of them
+  // continues the branch from there.
+  branch.forEach((e, i) => {
+    if (!isContextNudge(e)) return;
+    const rest = branch.slice(i);
+    const n = rest.findIndex(
+      (x, k) =>
+        k > 0 &&
+        ((x.type === "message" && x.message.role !== "system") ||
+          x.type === "custom_message" ||
+          x.type === "branch_summary"),
+    );
+    const next = rest[n];
+    if (!next || rest.slice(0, n).some((x) => world.treeLeaves.has(x.id))) return;
+    const what =
+      next.type === "message" ? next.message.role : next.type === "custom_message" ? next.customType : next.type;
+    assert.equal(what, "assistant", `context nudge ${e.id} is followed by ${what}, not the model's response`);
+  });
 }
 
 // --- Running the actions.
@@ -566,6 +593,10 @@ async function run(h: Harness, world: World, a: Action): Promise<Harness> {
       const target = chooser(a.seed).pick(sm.getEntries().filter((e) => e.id !== sm.getLeafId()));
       if (!target) return h;
       await h.session.navigateTree(target.id, { summarize: a.summarize });
+      // With a summary, pi adds it after the point jumped to.
+      const leaf = sm.getLeafEntry();
+      const at = leaf?.type === "branch_summary" ? leaf.parentId : leaf?.id;
+      if (at) world.treeLeaves.add(at);
       count(a.summarize ? "tree jumps with a summary" : "tree jumps");
       return h;
     }
@@ -618,6 +649,7 @@ async function runActions(actions: readonly Action[]) {
     queueOnRequest: undefined,
     overflow: false,
     queued: [],
+    treeLeaves: new Set(),
   };
   let h = await start(world, SessionManager.create(dir, world.sessionDir));
   const checked: Checked = { requests: 0 };

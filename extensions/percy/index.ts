@@ -52,6 +52,8 @@ import { applyCompaction, editsBetween } from "./view.ts";
 
 /** Records the nudge settings a branch was last nudged with (see nudgeDecision). */
 const NUDGE_SETTINGS_TYPE = "percy-nudge-settings";
+/** customType of the custom entry that marks a response whose nudge waits for a later request. */
+const NUDGE_DEFERRED_TYPE = "percy-nudge-deferred";
 /** An index shown by /percy:compact-debug: rendered, not sent to the model. */
 const INDEX_TYPE = "percy-index";
 
@@ -186,19 +188,20 @@ const entryTokens = (e: SessionEntry) => (e.type === "message" ? contextTokens(e
 
 /**
  * The context size of the nudge decision before branch[end]: the newest
- * earlier response whose turn did not compact. Shelley's nudger skips the
- * decision right after a compaction, as the response's size is from before
- * it, so that decision leaves the level as it was.
+ * earlier response whose turn neither compacted nor deferred its nudge.
+ * Shelley's nudger skips the decision right after a compaction, as the
+ * response's size is from before it, so that decision leaves the level as it
+ * was. A deferred nudge is still due, so its decision is not made yet.
  */
 function decidedTokens(branch: readonly SessionEntry[], end: number): number | undefined {
-  let compacted = false;
+  let undecided = false;
   for (let i = end - 1; i >= 0; i--) {
     const e = branch[i]!;
-    if (e.type === "custom" && e.customType === RECORD_TYPE) compacted = true;
+    if (e.type === "custom" && (e.customType === RECORD_TYPE || e.customType === NUDGE_DEFERRED_TYPE)) undecided = true;
     const n = entryTokens(e);
     if (n === undefined) continue;
-    if (!compacted) return n;
-    compacted = false;
+    if (!undecided) return n;
+    undecided = false;
   }
   return undefined;
 }
@@ -603,15 +606,20 @@ export function createPercyExtension(options: PercyOptions = {}) {
     /**
      * The nudge entries for the request that follows this turn's response in
      * the same run: one follows a tool batch, or a final reply when messages
-     * are queued for this run.
+     * are queued for this run. Shelley sends queued messages before the nudge,
+     * but pi adds them after these entries, so a nudge due while messages are
+     * queued waits for the next decision: it marks the response as deferred.
      */
     function nudgeAfter(event: TurnEndEvent, ctx: ExtensionContext): SessionBoundaryDraft[] {
-      if (!compacting() || (event.toolResults.length === 0 && !ctx.hasPendingMessages())) return [];
+      // Messages from the user or extensions (ctx.hasPendingMessages() counts only the user's).
+      const queued = event.context.pendingMessages.length > 0;
+      if (!compacting() || (event.toolResults.length === 0 && !queued)) return [];
       const tokens = contextTokens(event.message);
       if (tokens === undefined) return [];
       const branch = ctx.sessionManager.getBranch();
       const at = branch.findIndex((e) => e.id === event.messageEntryId);
       const { record, nudge } = nudgeDecision(ctx, branch, at < 0 ? branch.length : at, tokens);
+      if (nudge && queued) return [{ type: "custom", customType: NUDGE_DEFERRED_TYPE, data: {} }];
       return [
         ...(record ? [{ type: "custom" as const, customType: NUDGE_SETTINGS_TYPE, data: record }] : []),
         ...(nudge ? [{ type: "custom_message" as const, customType: NUDGE_TYPE, content: nudge, display: true }] : []),

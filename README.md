@@ -36,7 +36,7 @@ Run `/reload` after you change extension code or `percy` settings. Reload create
 
 ### 1. pi-percy sends a context nudge
 
-By default, pi-percy sends a nudge after a response reports 200k context tokens. As in Shelley, the nudge goes with the next model request: after the tool results when the agent continues, or after your next message when the response was a final reply. pi-percy does not make an extra model request for it. The nudge gives the agent:
+By default, pi-percy sends a nudge after a response reports 200k context tokens. As in Shelley, the nudge goes with the next model request: after the tool results when the agent continues, or after your next message when the response was a final reply. Shelley puts messages queued during a run before the nudge. Pi adds them after pi-percy's entries, so while messages are queued the nudge waits for a later request. pi-percy does not make an extra model request for it. The nudge gives the agent:
 
 - the approximate context size;
 - an index of old messages that it can compact; and

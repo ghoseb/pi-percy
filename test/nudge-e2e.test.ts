@@ -88,6 +88,49 @@ test("a nudge follows a tool batch within the run", async () => {
   }
 });
 
+test("a nudge due while a message is queued waits for the next request", async () => {
+  let steered = false;
+  const h: Harness = await startHarness(
+    // One level: the reply to hello is below it, the call's response above.
+    { nudge: { at: 1_500, step: 1_000_000 } },
+    {
+      // Steers while the call's request is in flight; answers it with a call.
+      respond: async (messages) => {
+        const last = dump([messages[messages.length - 1]!])[0]!;
+        if (!steered && last.includes("call echo")) {
+          steered = true;
+          await h.session.steer("steered");
+          return undefined;
+        }
+        if (last.includes("steered")) return { tool: "echo", args: { text: "y" } };
+        return undefined;
+      },
+    },
+  );
+  try {
+    await h.send("hello");
+    await h.call("echo", { text: "x".repeat(4000) });
+    const [hello, call, again] = responseSizes(h);
+    assert.ok(hello! < 1_500 && call! >= 1_500 && again! >= call!, `sizes ${responseSizes(h).join(", ")}`);
+    // The call's response crossed the level while "steered" was queued.
+    // Shelley sends queued messages before the nudge; pi adds them after the
+    // turn's entries, so the nudge waits for the next batch's request rather
+    // than go between the tool result and the steered message.
+    assert.deepEqual(order(h).slice(2), [
+      'user:call echo {"text":"xxxxx',
+      "assistant",
+      "toolResult",
+      "user:steered",
+      "assistant",
+      "toolResult",
+      "nudge",
+      "assistant",
+    ]);
+  } finally {
+    h.dispose();
+  }
+});
+
 test("no nudge right after a compaction; dropping below a level re-arms it", async () => {
   // Every response that grows the context crosses a level.
   const h = await startHarness({ limits: { keepRecentTokens: 1 }, nudge: { at: 1, step: 1 } });
