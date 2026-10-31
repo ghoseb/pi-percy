@@ -36,7 +36,14 @@ import {
   type StoredCompaction,
 } from "./branch.ts";
 import { debugCompletions, DEBUG_USAGE, parseDebugCommand } from "./debug.ts";
-import { idleNudgeText, worthIdleCompaction } from "./idle.ts";
+import {
+  idleCompactionBlocked,
+  idleNudgeText,
+  idleScheduler,
+  realTimers,
+  type Timers,
+  worthIdleCompaction,
+} from "./idle.ts";
 import { compactIndex } from "./index-render.ts";
 import { isPlainObject } from "./messages.ts";
 import {
@@ -88,19 +95,7 @@ export interface PercyOptions {
   timers?: Timers;
 }
 
-/** A one-shot timer: set returns the function that cancels it. */
-export interface Timers {
-  set(callback: () => void, ms: number): () => void;
-}
-
-/** Real timers, which do not keep pi from exiting. */
-const realTimers: Timers = {
-  set(callback, ms) {
-    const timer = setTimeout(callback, ms);
-    timer.unref?.();
-    return () => clearTimeout(timer);
-  },
-};
+export type { Timers } from "./idle.ts";
 
 const COMPACT_DESCRIPTION = [
   "Selectively compact this conversation's older context.",
@@ -246,53 +241,16 @@ export function createPercyExtension(options: PercyOptions = {}) {
     let pendingCompaction: { toolCallId: string; drafts: SessionBoundaryDraft[] } | undefined;
     let debugDrafts: SessionBoundaryDraft[] = [];
 
-    // Idle compaction state. The timer is armed when a run settles. A run
-    // started by the idle nudge does not re-arm it on settling; new input
-    // cancels it and makes the run an ordinary one. After an idle
-    // compaction, pi's idle cache warming stops until new input: the
-    // conversation is idle, and the compacted context is a new cache entry.
-    const timers = options.timers ?? realTimers;
-    let cancelIdleTimer: (() => void) | undefined;
-    let idleDeadline: number | undefined;
-    // Invalidates a callback that was queued as a timer was cancelled.
-    let idleGeneration = 0;
-    let idleRun = false;
-    let warmingStopped = false;
-    const cancelIdle = () => {
-      idleGeneration++;
-      cancelIdleTimer?.();
-      cancelIdleTimer = undefined;
-      idleDeadline = undefined;
-    };
-
-    /** An idle run has already happened and no user message has resumed the conversation. */
-    function idleCompactionBlocked(ctx: ExtensionContext): boolean {
-      const branch = ctx.sessionManager.getBranch();
-      for (let i = branch.length - 1; i >= 0; i--) {
-        const entry = branch[i]!;
-        if (entry.type === "message" && entry.message.role === "user") return false;
-        // A context nudge can follow the idle nudge in the idle run.
-        if (isNudgeEntry(entry, "idle")) return true;
-      }
-      return false;
-    }
-
-    /** Arm idle compaction after a settled run, reload, or session resume. */
-    function armIdle(ctx: ExtensionContext) {
-      cancelIdle();
-      if (settings.idle.minutes <= 0 || idleCompactionBlocked(ctx)) return;
-      const generation = idleGeneration;
-      const wait = settings.idle.minutes * 60_000;
-      idleDeadline = Date.now() + wait;
-      cancelIdleTimer = timers.set(() => startIdleCompaction(ctx, generation), wait);
-    }
+    const idle = idleScheduler({
+      timers: options.timers ?? realTimers,
+      minutes: () => settings.idle.minutes,
+      fire: startIdleCompaction,
+    });
 
     pi.on("session_start", (_event, ctx) => {
       pendingCompaction = undefined;
       debugDrafts = [];
-      cancelIdle();
-      idleRun = false;
-      warmingStopped = false;
+      idle.reset();
       piSettings = (options.piSettings ?? fileSettings)(ctx);
       const loaded = loadSettings(piSettings);
       settings = overlay(loaded.settings, options.settings);
@@ -301,7 +259,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
       checkModel(ctx);
       // A reload or resumed session starts a fresh idle interval. Do not treat
       // time before this extension runtime existed as idle time.
-      armIdle(ctx);
+      idle.arm(ctx);
     });
     pi.on("model_select", (event, ctx) => checkModel(ctx, event.model));
     // A branch ending inside a compaction would hold half of it, which no
@@ -315,13 +273,9 @@ export function createPercyExtension(options: PercyOptions = {}) {
       );
       return { cancel: true };
     });
-    pi.on("session_shutdown", cancelIdle);
-    pi.on("input", () => {
-      cancelIdle();
-      idleRun = false;
-      warmingStopped = false;
-    });
-    pi.on("agent_start", cancelIdle);
+    pi.on("session_shutdown", idle.cancel);
+    pi.on("input", idle.reset);
+    pi.on("agent_start", idle.cancel);
     // turn_end applies a compaction right after its tool batch, also when the
     // run is aborted. Should a run end without that boundary, its drafts would
     // otherwise block every later compaction.
@@ -330,45 +284,34 @@ export function createPercyExtension(options: PercyOptions = {}) {
       pendingCompaction = undefined;
       ctx.ui.notify("pi-percy: a compaction was not applied: the run ended before its turn boundary", "warning");
     });
-    pi.on("agent_settled", (event, ctx) => {
-      if (idleRun || event.aborted) {
-        idleRun = false;
-        cancelIdle();
-        return;
-      }
-      armIdle(ctx);
-    });
-    pi.on("cache_warming_decision", () => (warmingStopped ? { action: "stop" } : undefined));
+    pi.on("agent_settled", (event, ctx) => idle.settled(ctx, event.aborted));
+    pi.on("cache_warming_decision", () => (idle.warmingStopped() ? { action: "stop" } : undefined));
 
     /** Starts the idle compaction turn, if the conversation is still idle and worth it. */
-    function startIdleCompaction(ctx: ExtensionContext, generation: number) {
-      cancelIdleTimer = undefined;
-      idleDeadline = undefined;
+    function startIdleCompaction(ctx: ExtensionContext) {
       try {
-        if (generation !== idleGeneration) return;
         if (!compacting() || !ctx.isIdle() || ctx.hasPendingMessages()) return;
         // The branch can have changed since the timer was armed (/tree).
-        if (idleCompactionBlocked(ctx)) return;
+        if (idleCompactionBlocked(ctx.sessionManager.getBranch())) return;
         const view = currentView(ctx);
         if (!worthIdleCompaction(view.items, settings.limits, settings.idle.minTokens)) return;
-        idleRun = true;
-        warmingStopped = true;
-        pi.sendMessage(
-          {
-            customType: NUDGE_TYPE,
-            content: [
-              { type: "text", text: idleNudgeText(settings.idle.minutes) },
-              { type: "text", text: compactIndex(view.items, settings.limits, view.systemBoundaries) },
-            ],
-            display: true,
-            details: { idle: true },
-          },
-          { triggerTurn: true },
+        idle.startRun(() =>
+          pi.sendMessage(
+            {
+              customType: NUDGE_TYPE,
+              content: [
+                { type: "text", text: idleNudgeText(settings.idle.minutes) },
+                { type: "text", text: compactIndex(view.items, settings.limits, view.systemBoundaries) },
+              ],
+              display: true,
+              details: { idle: true },
+            },
+            { triggerTurn: true },
+          ),
         );
       } catch (err) {
         // A timer callback has no caller to report to, and an exception
         // here would take pi down.
-        idleRun = false;
         const message = `pi-percy: idle compaction failed: ${errorText(err)}`;
         try {
           ctx.ui.notify(message, "error");
@@ -512,21 +455,13 @@ export function createPercyExtension(options: PercyOptions = {}) {
           : compactionEnabled
             ? "enabled"
             : "disabled";
-        const idle =
-          settings.idle.minutes === 0
-            ? "disabled"
-            : idleDeadline === undefined
-              ? idleCompactionBlocked(ctx)
-                ? "blocked after an idle compaction"
-                : "not armed"
-              : `armed; fires in ~${Math.max(0, Math.ceil((idleDeadline - Date.now()) / 60_000))}m`;
         const eligible = worthIdleCompaction(view.items, settings.limits, settings.idle.minTokens);
         ctx.ui.notify(
           [
             `pi-percy: ${state}`,
             `history: ~${itemTokens(view.items)} tokens`,
             `nudges: ~${settings.nudge.at} tokens, then every ~${settings.nudge.step}`,
-            `idle: ${idle}; ${eligible ? "eligible" : `requires ~${settings.idle.minTokens} tokens and older history`}`,
+            `idle: ${idle.status(ctx)}; ${eligible ? "eligible" : `requires ~${settings.idle.minTokens} tokens and older history`}`,
           ].join("\n"),
           "info",
         );
