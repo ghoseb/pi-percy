@@ -61,6 +61,7 @@ export interface PercyOptions {
     limits?: Partial<PercySettings["limits"]>;
     nudge?: Partial<PercySettings["nudge"]>;
     idle?: Partial<PercySettings["idle"]>;
+    minCompactionSavingsTokens?: number;
   };
   /**
    * pi's settings, read at session start: pi-percy's own (the "percy" key)
@@ -217,6 +218,7 @@ function overlay(base: PercySettings, over: PercyOptions["settings"] = {}): Perc
     limits: { ...base.limits, ...over.limits },
     nudge: { ...base.nudge, ...over.nudge },
     idle: { ...base.idle, ...over.idle },
+    minCompactionSavingsTokens: over.minCompactionSavingsTokens ?? base.minCompactionSavingsTokens,
   };
 }
 
@@ -266,6 +268,15 @@ export function createPercyExtension(options: PercyOptions = {}) {
         if (entry.type === "custom_message" && entry.customType === NUDGE_TYPE) {
           return (entry.details as { idle?: boolean } | undefined)?.idle === true;
         }
+      }
+      return false;
+    }
+
+    /** A nudge without later user input means the model is compacting automatically. */
+    function automaticCompaction(ctx: ExtensionContext): boolean {
+      for (const entry of [...ctx.sessionManager.getBranch()].reverse()) {
+        if (entry.type === "message" && entry.message.role === "user") return false;
+        if (entry.type === "custom_message" && entry.customType === NUDGE_TYPE) return true;
       }
       return false;
     }
@@ -396,7 +407,11 @@ export function createPercyExtension(options: PercyOptions = {}) {
           ...(params.collapse === undefined ? {} : { collapse: params.collapse }),
           ...(params.collapseUnits === undefined ? {} : { collapseUnits: params.collapseUnits }),
         };
-        const result = compactRequest(view.items, settings.limits, input, { systemBoundaries: view.systemBoundaries });
+        const automatic = automaticCompaction(ctx);
+        const result = compactRequest(view.items, settings.limits, input, {
+          systemBoundaries: view.systemBoundaries,
+          ...(automatic ? { minSavingsTokens: settings.minCompactionSavingsTokens } : {}),
+        });
         pending.set(toolCallId, compactionDrafts(view, result.compaction, result.edits, result));
         return Promise.resolve(text(result.text));
       },

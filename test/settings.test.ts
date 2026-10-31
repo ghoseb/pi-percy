@@ -16,6 +16,7 @@ test("applySettings maps keys and reports what it cannot use", () => {
       maxCollapseTokens: 10_000,
       idleMinutes: 0,
       idleMinTokens: 40_000,
+      minCompactionSavingsTokens: 30_000,
     },
     "s.json",
   );
@@ -24,6 +25,7 @@ test("applySettings maps keys and reports what it cannot use", () => {
     limits: { keepRecentTokens: 0, maxCollapseTokens: 10_000 },
     nudge: { at: 150_000, step: 25_000 },
     idle: { minutes: 0, minTokens: 40_000 },
+    minCompactionSavingsTokens: 30_000,
   });
 
   const bad = applySettings(

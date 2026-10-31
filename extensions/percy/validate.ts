@@ -181,6 +181,8 @@ export interface CompactResult {
   edits: Edit[];
   tokensBefore: number;
   tokensAfter: number;
+  tokensSaved: number;
+  remainingUnits: number;
   /** The tool's reply to the agent. */
   text: string;
 }
@@ -188,6 +190,8 @@ export interface CompactResult {
 export interface CompactionConstraints {
   /** Retained Pi system-message positions, which compaction must not make invalid. */
   systemBoundaries?: readonly number[];
+  /** Minimum estimated saving required before an automatic rewrite. */
+  minSavingsTokens?: number;
 }
 
 /**
@@ -243,11 +247,24 @@ export function compactRequest(
     throw new Error(`${systemProblems.length} problems:\n- ${systemProblems.join("\n- ")}\n\n${RETRY_GUIDANCE}`);
   const tokensBefore = itemTokens(history);
   const tokensAfter = itemTokens(after);
+  const tokensSaved = tokensBefore - tokensAfter;
+  if (constraints.minSavingsTokens !== undefined && tokensSaved < constraints.minSavingsTokens) {
+    throw new Error(
+      `This compaction saves only ~${tokensSaved} tokens; automatic compaction requires at least ~${constraints.minSavingsTokens}. ` +
+        `Select more safe units from the index and send one combined request. ${RETRY_GUIDANCE}`,
+    );
+  }
+  const remainingUnits = compactionUnits(after, limits, constraints.systemBoundaries).units.length;
   return {
     compaction,
     edits: editsBetween(history, after),
     tokensBefore,
     tokensAfter,
-    text: `Compacted: ${compaction.squishes.length} collapsed, ${compaction.trims.length} trimmed; history ~${tokensBefore} -> ~${tokensAfter} tokens.`,
+    tokensSaved,
+    remainingUnits,
+    text:
+      `Compacted: ${compaction.squishes.length} collapsed, ${compaction.trims.length} trimmed; ` +
+      `history ~${tokensBefore} -> ~${tokensAfter} tokens (saved ~${tokensSaved}). ` +
+      `${remainingUnits} safe collapse units remain.`,
   };
 }
