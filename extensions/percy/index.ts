@@ -26,16 +26,16 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "typebox";
 import {
-  type BranchView,
-  branchView,
   compactionDrafts,
+  currentView,
   compactionSplitBy,
   isNudgeEntry,
   isRecordEntry,
   RECORD_TYPE,
   type StoredCompaction,
 } from "./branch.ts";
-import { debugCompletions, DEBUG_USAGE, parseDebugCommand } from "./debug.ts";
+import { registerCommands } from "./commands.ts";
+import { INDEX_TYPE } from "./debug.ts";
 import {
   idleCompactionBlocked,
   idleNudgeText,
@@ -45,7 +45,7 @@ import {
   worthIdleCompaction,
 } from "./idle.ts";
 import { compactIndex } from "./index-render.ts";
-import { isPlainObject } from "./messages.ts";
+import { errorText, isPlainObject } from "./messages.ts";
 import {
   contextTokens,
   decideNudge,
@@ -57,27 +57,9 @@ import {
 } from "./nudge.ts";
 import { renderOriginals, resolveIds } from "./recall.ts";
 import { renderCompactCall, renderCompactResult, renderIndex, renderNudge, renderRecord } from "./render.ts";
-import { itemTokens } from "./rows.ts";
 import { DEFAULT_SETTINGS, loadSettings, type PercySettings } from "./settings.ts";
-import {
-  COMPACT_COMMAND,
-  COMPACT_TOOL,
-  DEBUG_COMMAND,
-  NUDGE_TYPE,
-  type NudgeDetails,
-  RECALL_TOOL,
-  REWIND_COMMAND,
-  STATUS_COMMAND,
-  TOGGLE_COMMAND,
-} from "./types.ts";
+import { COMPACT_TOOL, NUDGE_TYPE, type NudgeDetails, RECALL_TOOL } from "./types.ts";
 import { compactRequest } from "./validate.ts";
-import { applyCompaction, editsBetween } from "./view.ts";
-
-/** An index shown by /percy:compact-debug: rendered, not sent to the model. */
-const INDEX_TYPE = "percy-index";
-
-/** What /percy:compact-in-place asks the agent, as Shelley's Compact in Place button does. */
-export const COMPACT_REQUEST = "Compact your context in place.";
 
 export interface PercyOptions {
   /** Overrides of the loaded settings, for tests. */
@@ -146,11 +128,6 @@ const recallParameters = Type.Object({
   ids: Type.Array(Type.String(), { description: "message numbers, ranges like 12-20, or note ids like s30.1" }),
 });
 
-function currentView(ctx: ExtensionContext): BranchView {
-  const sm = ctx.sessionManager;
-  return branchView(sm.getBranch(), sm.buildSessionProjection());
-}
-
 // The tool arguments that are lists of ids, and those that are lists of
 // objects with id fields.
 const ID_LISTS = ["trim", "ids"];
@@ -214,8 +191,6 @@ function overlay(base: PercySettings, over: PercyOptions["settings"] = {}): Perc
     idle: { ...base.idle, ...over.idle },
   };
 }
-
-const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 export function createPercyExtension(options: PercyOptions = {}) {
   return function percy(pi: ExtensionAPI) {
@@ -374,99 +349,12 @@ export function createPercyExtension(options: PercyOptions = {}) {
       },
     });
 
-    pi.registerCommand(COMPACT_COMMAND, {
-      description: "Ask the agent to compact its context in place (optional: what to keep)",
-      handler: (args, ctx) => {
-        const instructions = args.trim();
-        const request = instructions ? `${COMPACT_REQUEST}\n\n${instructions}` : COMPACT_REQUEST;
-        // Queued behind a running turn, as Shelley queues it.
-        pi.sendUserMessage(request, ctx.isIdle() ? undefined : { deliverAs: "followUp" });
-        return Promise.resolve();
-      },
-    });
-
-    pi.registerCommand(DEBUG_COMMAND, {
-      description: `Testing aid for in-place compaction (${DEBUG_USAGE.replace("usage: ", "")})`,
-      getArgumentCompletions: debugCompletions,
-      handler: (args, ctx) => {
-        try {
-          const view = currentView(ctx);
-          const command = parseDebugCommand(args, view.items, view.systemBoundaries);
-          if (command.kind === "index") {
-            pi.appendEntry(INDEX_TYPE, { index: compactIndex(view.items, settings.limits, view.systemBoundaries) });
-            return Promise.resolve();
-          }
-          // Commands cannot append context edits; turn_end does.
-          const c = command.compaction;
-          const after = applyCompaction(view.items, c);
-          const sizes = { tokensBefore: itemTokens(view.items), tokensAfter: itemTokens(after) };
-          debugDrafts.push(...compactionDrafts(view, c, editsBetween(view.items, after), sizes));
-          ctx.ui.notify("pi-percy: recorded; it applies after the next model response", "info");
-        } catch (err) {
-          ctx.ui.notify(`pi-percy: ${errorText(err)}`, "error");
-        }
-        return Promise.resolve();
-      },
-    });
-
-    pi.registerCommand(REWIND_COMMAND, {
-      description: "Rewind the active branch to before the newest pi-percy compaction",
-      async handler(_args, ctx) {
-        if (!ctx.isIdle()) {
-          ctx.ui.notify("pi-percy: wait for the current turn to finish before rewinding compaction", "warning");
-          return;
-        }
-        const branch = ctx.sessionManager.getBranch();
-        const record = branch.findLast(isRecordEntry);
-        if (!record?.parentId) {
-          ctx.ui.notify("pi-percy: no compaction on this branch to undo", "warning");
-          return;
-        }
-        const later = branch.length - branch.indexOf(record) - 1;
-        const confirmed = await ctx.ui.confirm(
-          "Rewind pi-percy compaction?",
-          `This returns to before the newest compaction. ${later} later ${later === 1 ? "entry" : "entries"} stay on an alternate branch; use /tree to return.`,
-        );
-        if (!confirmed) return;
-        const result = await ctx.navigateTree(record.parentId, { summarize: false });
-        if (result.cancelled) {
-          ctx.ui.notify("pi-percy: compaction rewind was cancelled", "warning");
-          return;
-        }
-        ctx.ui.notify("pi-percy: rewound the branch to before the newest compaction", "info");
-      },
-    });
-
-    pi.registerCommand(TOGGLE_COMMAND, {
-      description: "Enable or disable pi-percy context compaction for this session",
-      handler: (_args, ctx) => {
-        compactionEnabled = !compactionEnabled;
-        ctx.ui.notify(`pi-percy: compaction ${compactionEnabled ? "enabled" : "disabled"} for this session`, "info");
-        return Promise.resolve();
-      },
-    });
-
-    pi.registerCommand(STATUS_COMMAND, {
-      description: "Show pi-percy compaction status without a model request",
-      handler: (_args, ctx) => {
-        const view = currentView(ctx);
-        const state = !pi.getActiveTools().includes(COMPACT_TOOL)
-          ? `${COMPACT_TOOL} is not active`
-          : compactionEnabled
-            ? "enabled"
-            : "disabled";
-        const eligible = worthIdleCompaction(view.items, settings.limits, settings.idle.minTokens);
-        ctx.ui.notify(
-          [
-            `pi-percy: ${state}`,
-            `history: ~${itemTokens(view.items)} tokens`,
-            `nudges: ~${settings.nudge.at} tokens, then every ~${settings.nudge.step}`,
-            `idle: ${idle.status(ctx)}; ${eligible ? "eligible" : `requires ~${settings.idle.minTokens} tokens and older history`}`,
-          ].join("\n"),
-          "info",
-        );
-        return Promise.resolve();
-      },
+    registerCommands(pi, {
+      settings: () => settings,
+      recordDebug: (drafts) => debugDrafts.push(...drafts),
+      compactionEnabled: () => compactionEnabled,
+      toggleCompaction: () => (compactionEnabled = !compactionEnabled),
+      idleStatus: idle.status,
     });
 
     pi.registerEntryRenderer<StoredCompaction>(RECORD_TYPE, (entry, { expanded }, theme) =>

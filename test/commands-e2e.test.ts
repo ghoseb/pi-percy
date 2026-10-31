@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { SessionEntry, SessionManager } from "@earendil-works/pi-coding-agent";
 import { isNudgeEntry, isRecordEntry } from "../extensions/percy/branch.ts";
-import { COMPACT_REQUEST } from "../extensions/percy/index.ts";
+import { COMPACT_REQUEST } from "../extensions/percy/commands.ts";
 import { noteText } from "../extensions/percy/messages.ts";
 import {
   COMPACT_COMMAND,

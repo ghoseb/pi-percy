@@ -4,12 +4,19 @@
 import type {
   CustomEntry,
   CustomMessageEntry,
+  ExtensionContext,
   SessionBoundaryDraft,
   SessionEntry,
   SessionProjection,
 } from "@earendil-works/pi-coding-agent";
 import { noteText, onlyText } from "./messages.ts";
 import { type Compaction, type Edit, type Item, type NudgeDetails, NUDGE_TYPE } from "./types.ts";
+
+/** The view of ctx's current branch. */
+export function currentView(ctx: ExtensionContext): BranchView {
+  const sm = ctx.sessionManager;
+  return branchView(sm.getBranch(), sm.buildSessionProjection());
+}
 
 /** customType of the custom entry that records a compaction. */
 export const RECORD_TYPE = "percy-compaction";

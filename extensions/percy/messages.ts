@@ -1,5 +1,5 @@
-// Helpers over pi's AgentMessage shapes, and the texts compaction puts in
-// the view in place of what it removed.
+// Helpers over pi's AgentMessage shapes, the texts compaction puts in the
+// view in place of what it removed, and the text of an error for a notice.
 import { type AgentMessage, NUDGE_TYPE, RECALL_TOOL } from "./types.ts";
 
 type ToolCall = Extract<Extract<AgentMessage, { role: "assistant" }>["content"][number], { type: "toolCall" }>;
@@ -88,4 +88,9 @@ export function isTrimmedOutput(m: AgentMessage): boolean {
   if (text === undefined) return false;
   const match = /^\[Tool output compacted: message (\d+); /.exec(text);
   return match !== null && text === trimmedText(Number(match[1]));
+}
+
+/** The message of an exception, for a notice. */
+export function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }

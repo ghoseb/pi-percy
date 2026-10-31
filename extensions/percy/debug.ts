@@ -6,6 +6,9 @@ import { DEBUG_COMMAND, type Compaction, emptyCompaction, type Item } from "./ty
 import { rowTrims } from "./validate.ts";
 import { applyCompaction, compactionView, systemBoundaryProblems } from "./view.ts";
 
+/** customType of an index shown by /percy:compact-debug: rendered, not sent to the model. */
+export const INDEX_TYPE = "percy-index";
+
 export const DEBUG_USAGE = `usage: /${DEBUG_COMMAND} [index] | /${DEBUG_COMMAND} squish <from>-<to> <summary> | /${DEBUG_COMMAND} trim <id>`;
 
 const DEBUG_COMPLETIONS = [
