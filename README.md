@@ -66,6 +66,8 @@ The tools also declare annotations for permission extensions. `recall` is read-o
 
 The index groups a tool call with its outputs. It marks protected rows. It does not show the recent part.
 
+The index leaves out small items. A user message, a note, or a summary can be collapsed only on its own. If such a row is under about 500 tokens, collapsing it saves little. The index shows a run of these rows as one line, for example `85-1319  *  2315  49 rows: 29 notes, 20 user messages`. The numbers are the messages that the run spans, so `recall` with the ids `85-1319` reads the original messages behind those notes. The safe-unit list shows only units of about 500 tokens or more, and it gives the number of smaller units. The smaller units stay valid.
+
 The agent can do these actions:
 
 - **Trim** an old tool output. pi-percy replaces its model-visible content with a small recall pointer.

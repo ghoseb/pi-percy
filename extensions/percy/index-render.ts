@@ -2,7 +2,7 @@
 import { contentText, isTrimmedOutput } from "./messages.ts";
 import { estimateTokens, itemId, itemTokens, type Row, recentStart, rowId, splitRows } from "./rows.ts";
 import { COMPACT_TOOL, type Item, type Limits, RECALL_TOOL } from "./types.ts";
-import { aloneRows, compactionUnits } from "./units.ts";
+import { aloneRows, compactionUnits, SMALL_TOKENS, worthListing } from "./units.ts";
 import { compactionView } from "./view.ts";
 
 function guidance(maxCollapseTokens: number): string {
@@ -32,6 +32,7 @@ const TABLE_INTRO = [
   "One row per message, oldest first, except that a tool call and its outputs share a row.",
   "id is the message number (of the call, for a shared row), or s<n>.<i> for a note from an earlier compaction.",
   "tokens are estimated; `→ N` gives the tokens of a call's output, or says it is trimmed or missing.",
+  `A line \`a-b *\` folds a run of rows marked * that are each under ~${SMALL_TOKENS} tokens: collapsing them saves little. a-b are the message numbers they span, so ${RECALL_TOOL} ids a-b reads their originals.`,
 ].join(" ");
 
 /** Renders the index of history the agent compacts from. */
@@ -60,20 +61,48 @@ export function buildIndex(
   const { rows, recentRow } = splitRows(items, recent);
   const alone = aloneRows(rows);
   const table: string[][] = [["id", "role", "tokens", "content"]];
-  rows.slice(0, recentRow).forEach((row, i) => {
-    table.push([rowId(row), roleOf(row) + (alone[i] ? "*" : ""), String(itemTokens(row)), describeRow(row)]);
-  });
+  const small = (i: number) => alone[i]! && itemTokens(rows[i]!) < SMALL_TOKENS;
+  for (let i = 0; i < recentRow;) {
+    let end = i;
+    while (small(i) && end + 1 < recentRow && small(end + 1)) end++;
+    if (end > i) {
+      const run = rows.slice(i, end + 1).flat();
+      table.push([
+        `${Math.min(...run.map((it) => it.from))}-${Math.max(...run.map((it) => it.to))}`,
+        "*",
+        String(itemTokens(run)),
+        foldedRows(rows.slice(i, end + 1)),
+      ]);
+    } else {
+      const row = rows[i]!;
+      table.push([rowId(row), roleOf(row) + (alone[i] ? "*" : ""), String(itemTokens(row)), describeRow(row)]);
+    }
+    i = end + 1;
+  }
   const units = compactionUnits(items, limits, systemBoundaries);
-  const unitLines = units.units.map(
-    (unit) => `${unit.id}: ${unit.from}-${unit.to}, ~${unit.tokens} tokens (${unit.kind})`,
-  );
+  const listed = units.units.filter(worthListing);
+  const unitLines = listed.map((unit) => `${unit.id}: ${unit.from}-${unit.to}, ~${unit.tokens} tokens (${unit.kind})`);
+  const unlisted = units.units.length - listed.length;
   const protectedLines = units.protectedRows.map((row) => `${row.id}: ${row.reason}`);
   const unitSection = [
     "Safe collapse units (use collapseUnits with a note):",
     ...(unitLines.length > 0 ? unitLines : ["none"]),
+    ...(unlisted > 0 ? [`(${unlisted} more under ~${SMALL_TOKENS} tokens each are not listed.)`] : []),
     ...(protectedLines.length > 0 ? ["Protected rows:", ...protectedLines] : []),
   ].join("\n");
   return { text: `${out}${tabulate(table)}\`\`\`\n\n${unitSection}\n`, rows: recentRow };
+}
+
+/** Describes a folded run of small rows that each collapse only on their own. */
+function foldedRows(rows: readonly Row[]): string {
+  const count = (role: string) => rows.filter((r) => roleOf(r) === role).length;
+  const kinds = [
+    [count("note"), "note", "notes"],
+    [count("user"), "user message", "user messages"],
+    [count("summary"), "summary", "summaries"],
+  ] as const;
+  const parts = kinds.filter(([n]) => n > 0).map(([n, one, many]) => `${n} ${n === 1 ? one : many}`);
+  return `${rows.length} rows: ${parts.join(", ")}`;
 }
 
 /** Aligns all columns but the last, two spaces apart, like Go's tabwriter. */

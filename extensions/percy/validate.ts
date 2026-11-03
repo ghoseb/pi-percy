@@ -1,7 +1,7 @@
 // Turning the agent's compact request into a record: the "linter".
 import { isEditable, isToolResult, isTrimmedOutput } from "./messages.ts";
 import { indexOfRow, itemTokens, orphanCall, orphanOutput, type Row, recentStart, rowId, splitRows } from "./rows.ts";
-import { aloneRows, compactionUnits } from "./units.ts";
+import { aloneRows, compactionUnits, worthListing } from "./units.ts";
 import {
   type Collapse,
   type Compaction,
@@ -259,7 +259,8 @@ export function compactRequest(
   const tokensBefore = itemTokens(history);
   const tokensAfter = itemTokens(after);
   const tokensSaved = tokensBefore - tokensAfter;
-  const remainingUnits = compactionUnits(after, limits, systemBoundaries).units.length;
+  // The units the index would list.
+  const remainingUnits = compactionUnits(after, limits, systemBoundaries).units.filter(worthListing).length;
   return {
     compaction,
     edits: editsBetween(history, after),

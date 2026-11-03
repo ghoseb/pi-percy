@@ -116,14 +116,21 @@ test("compact_in_place end to end", async () => {
   const raw = h.session.sessionManager.getBranch()[firstResultSeq - 1]!;
   assert.ok(raw.type === "message" && JSON.stringify(raw.message).includes("FIRST_OUTPUT"));
 
-  // The next index shows the note and the trimmed output.
+  // The next index folds the small note with the small user messages around
+  // it, and shows the trimmed output.
   await h.call("compact_in_place", { action: "index" });
   const again = h.lastToolResult().text;
-  assert.match(again, /^s\d+\.0 +note\* +\d+ +note "GREETED"$/m);
+  assert.match(again, /^\d+-\d+ +\* +\d+ +\d+ rows: 1 note, \d+ user messages$/m);
   assert.ok(again.includes('echo "FIRST_OUTPUT" → trimmed'), again);
 
-  // recall shows the originals, by note id or message number.
-  const noteId = /^(s\d+\.0) /m.exec(again)![1]!;
+  // Recalling the fold's span reads the originals behind it.
+  const fold = /^(\d+-\d+) +\* /m.exec(again)![1]!;
+  await h.call("recall", { ids: [fold] });
+  assert.ok(h.lastToolResult().text.includes(GREETING), h.lastToolResult().text);
+
+  // Search finds the note; recall shows the originals, by note id or message number.
+  await h.call("recall", { query: "GREETED", role: "note" });
+  const noteId = /^(s\d+\.0) /m.exec(h.lastToolResult().text)![1]!;
   await h.call("recall", { ids: [noteId, firstResultSeq] });
   const recalled = h.lastToolResult();
   assert.equal(recalled.isError, false, recalled.text);

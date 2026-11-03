@@ -27,6 +27,18 @@ export interface CompactionUnits {
 }
 
 /**
+ * Below this many tokens, a unit or a row that collapses only on its own saves
+ * too little to list in the index. Such units stay valid; the index leaves
+ * them out and folds runs of such rows into one line.
+ */
+export const SMALL_TOKENS = 500;
+
+/** Whether the index lists a unit: it may save at least SMALL_TOKENS. */
+export function worthListing(unit: CompactionUnit): boolean {
+  return unit.tokens >= SMALL_TOKENS;
+}
+
+/**
  * Reports whether a collapse may cover item only on its own: a message from
  * the user, a note from an earlier compaction, or a summary pi wrote. They
  * carry the task and its rules, and the agent tends to fold them into notes

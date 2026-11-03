@@ -97,11 +97,31 @@ test("index shows safe units and protected rows", () => {
     user(4, x(400)),
   ];
   const index = compactIndex(history, limits(1));
+  // Units under ~500 tokens are counted, not listed.
   assert.match(
     index,
-    /Safe collapse units \(use collapseUnits with a note\):\nu1: 1-1, ~2 tokens \(single\)\nu2: 2-2, ~2 tokens \(single\)/,
+    /Safe collapse units \(use collapseUnits with a note\):\nnone\n\(2 more under ~500 tokens each are not listed\.\)/,
   );
+  const big = compactIndex([user(1, x(2400)), assistant(2, x(2400)), user(3, x(400))], limits(1));
+  assert.match(big, /\nu1: 1-1, ~\d+ tokens \(single\)\nu2: 2-2, ~\d+ tokens \(single\)\n/);
   assert.match(index, /Protected rows:\n3: cannot be compacted/);
+});
+
+test("index folds runs of small rows that collapse only on their own", () => {
+  const history = [
+    user(1, "first"),
+    user(2, "second"),
+    assistant(3, "work"),
+    user(4, x(2400)),
+    user(5, "fifth"),
+    user(6, x(400)),
+  ];
+  const index = compactIndex(history, limits(1));
+  assert.match(index, /^1-2 +\* +\d+ +2 rows: 2 user messages$/m);
+  assert.match(index, /^3 +assistant /m);
+  // A big row and a lone small row keep their own lines.
+  assert.match(index, /^4 +user\* +\d+ +text /m);
+  assert.match(index, /^5 +user\* +\d+ +text "fifth"$/m);
 });
 
 // From Shelley's TestBuildCompactionOrphans.
@@ -144,7 +164,7 @@ test("index shows notes and trimmed outputs", () => {
   const history = [
     user(1, "hello"),
     assistant(2, "Well, hi there!"),
-    user(3, "bash: echo compact-me-please"),
+    user(3, `bash: echo compact-me-please ${x(2400)}`),
     call(4, "c", "bash", { command: "echo compact-me-please" }),
     output(5, "c", "compact-me-please\n"),
     assistant(6, "done"),
