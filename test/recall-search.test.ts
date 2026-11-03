@@ -10,6 +10,7 @@ import {
 } from "../extensions/percy/recall.ts";
 import { COMPACT_TOOL, NUDGE_TYPE, RECALL_TOOL } from "../extensions/percy/types.ts";
 import { assistant, assistantMessage, call, output, user, x } from "./fixtures.ts";
+import { callersOf } from "../extensions/percy/tools.ts";
 import { compact, session, view } from "./sessions.ts";
 
 /**
@@ -75,6 +76,18 @@ test("search skips tool calls that called recall, by their recorded nested calls
   const hits = searchOriginals(v, { query: "widget", tool: "codemode" }).hits.map((h) => h.id);
   // Only the script that did not call recall: its call and output.
   assert.deepEqual(hits, [String(v.count), String(v.count - 1)]);
+});
+
+test("search skips the running tool calls that called it", () => {
+  const sm = widgetSession();
+  sm.appendMessage(call(0, "k1", "codemode", { code: "await tools.recall({ query: 'widget' })" }).message as never);
+  const v = view(sm);
+  const newest = (callers?: string[]) =>
+    searchOriginals(v, { query: "widget", tool: "codemode", ...(callers ? { callers } : {}) }).hits.map((h) => h.id);
+  assert.deepEqual(newest(), [String(v.count)]);
+  assert.deepEqual(newest(callersOf("k1/1")), []);
+  assert.deepEqual(callersOf("a"), []);
+  assert.deepEqual(callersOf("a/1/2"), ["a", "a/1"]);
 });
 
 test("role and tool narrow the search", () => {

@@ -232,7 +232,12 @@ const scriptTool: ExtensionFactory = (pi) => {
     async execute(_id, params, signal, _onUpdate, ctx) {
       const outcome = await ctx.executeTool(params.tool, params.args, signal ? { signal } : {});
       const text = outcome.result.content.map((c) => (c.type === "text" ? c.text : "")).join("");
-      return { content: [{ type: "text", text: `${outcome.isError ? "error" : "ok"}: ${text}` }], details: undefined };
+      const structured = outcome.result.structuredContent;
+      const data = structured === undefined ? "" : `\nstructured: ${JSON.stringify(structured)}`;
+      return {
+        content: [{ type: "text", text: `${outcome.isError ? "error" : "ok"}: ${text}${data}` }],
+        details: undefined,
+      };
     },
   });
 };
@@ -260,6 +265,21 @@ test("scripts can recall but cannot compact", async () => {
     await s.call("script", { tool: "recall", args: { ids: [String(greetingSeq)] } });
     const recalled = s.lastToolResult().text;
     assert.ok(recalled.startsWith("ok: ") && recalled.includes("Well, hi there!"), recalled);
+    // Scripts also get recall's results as data.
+    const data = (t: string) => JSON.parse(t.slice(t.indexOf("\nstructured: ") + "\nstructured: ".length)) as unknown;
+    assert.deepEqual(data(recalled), {
+      messages: [{ id: greetingSeq, header: "assistant", text: "Well, hi there! What shall we work on today?" }],
+    });
+    await s.call("script", { tool: "recall", args: { query: "hi there", role: "assistant" } });
+    const found = data(s.lastToolResult().text) as {
+      search: { total: number; offset: number; hits: { id: string }[] };
+    };
+    assert.deepEqual([found.search.total, found.search.offset, found.search.hits[0]!.id], [1, 0, String(greetingSeq)]);
+
+    // Hints for permission extensions: recall only reads; compaction only adds entries.
+    const hints = (name: string) => s.session.getAllTools().find((t) => t.name === name)?.annotations;
+    assert.deepEqual(hints("recall"), { readOnlyHint: true, openWorldHint: false });
+    assert.equal(hints("compact_in_place")?.destructiveHint, false);
   } finally {
     s.dispose();
   }

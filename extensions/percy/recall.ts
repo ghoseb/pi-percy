@@ -44,18 +44,34 @@ export function resolveIds(view: BranchView, ids: readonly string[], clampEnd = 
 
 /** Renders the original messages in spans, each message once. */
 export function renderOriginals(view: BranchView, spans: readonly [number, number][]): string {
+  const parts = originals(view, spans).map((m) => `## Message ${m.id} (${m.header})\n${m.text}`);
+  return parts.length > 0 ? parts.join("\n\n") : "Those ids hold no messages.";
+}
+
+/** An original message as recall returns it. */
+export interface Original {
+  /** Message number. */
+  id: number;
+  /** "user", "assistant", "bash output for #id", and so on. */
+  header: string;
+  /** Text, tool calls and tool output; never thinking. */
+  text: string;
+}
+
+/** The original messages in spans, each message once, in request order. */
+export function originals(view: BranchView, spans: readonly [number, number][]): Original[] {
   const seen = new Set<number>();
-  const parts: string[] = [];
+  const out: Original[] = [];
   for (const [from, to] of spans) {
     for (let n = from; n <= to; n++) {
       if (seen.has(n)) continue;
       seen.add(n);
       const entry = view.entryAt(n);
       const message = entry && entryMessage(entry);
-      if (message) parts.push(`## Message ${n} ${renderMessage(message)}`);
+      if (message) out.push({ id: n, header: message.header, text: message.parts.map((p) => p.text).join("\n") });
     }
   }
-  return parts.length > 0 ? parts.join("\n\n") : "Those ids hold no messages.";
+  return out;
 }
 
 /** Who a part of a message speaks as, as the model saw it. pi sends custom messages and user bash runs as user messages. */
@@ -75,10 +91,6 @@ interface Part {
 interface EntryMessage {
   header: string;
   parts: Part[];
-}
-
-function renderMessage(m: EntryMessage): string {
-  return `(${m.header})\n${m.parts.map((p) => p.text).join("\n")}`;
 }
 
 type Block = { type: string; text?: string; thinking?: string; name?: string; id?: string; arguments?: unknown };
@@ -164,6 +176,8 @@ export interface SearchQuery {
   limit?: number;
   offset?: number;
   oldestFirst?: boolean;
+  /** Tool calls to skip as well: those running this search, such as the script that called recall. */
+  callers?: readonly string[];
 }
 
 /** One message or note that matched. */
@@ -205,7 +219,8 @@ function inRange(range: [number, number] | undefined, from: number, to: number):
  * Ids of the tool calls that called pi-percy's tools themselves, like a
  * codemode script that ran recall: pi records such calls in the result's
  * nestedCalls. Their code and output repeat notes and old messages too, so
- * search skips them, other work in the same call included.
+ * search skips them, other work in the same call included. A call still
+ * running has no result yet: recall names it in SearchQuery.callers.
  */
 function callsOfPercyTools(view: BranchView): Set<string> {
   const ids = new Set<string>();
@@ -225,6 +240,7 @@ function callsOfPercyTools(view: BranchView): Set<string> {
  */
 function candidates(view: BranchView, q: SearchQuery): Candidate[] {
   const skipped = callsOfPercyTools(view);
+  for (const id of q.callers ?? []) skipped.add(id);
   const out: Candidate[] = [];
   for (let n = 1; n <= view.count; n++) {
     const entry = view.entryAt(n)!;

@@ -13,7 +13,7 @@ import { type Static, Type } from "typebox";
 import { type BranchView, compactionDrafts, currentView } from "./branch.ts";
 import { buildIndex } from "./index-render.ts";
 import { isPlainObject } from "./messages.ts";
-import { renderOriginals, renderSearch, resolveIds, SEARCH_LIMITS, searchOriginals } from "./recall.ts";
+import { originals, renderOriginals, renderSearch, resolveIds, SEARCH_LIMITS, searchOriginals } from "./recall.ts";
 import { renderCompactCall, renderCompactResult } from "./render.ts";
 import type { PercySettings } from "./settings.ts";
 import { COMPACT_TOOL, type CompactDetails, RECALL_TOOL } from "./types.ts";
@@ -93,6 +93,44 @@ const recallParameters = Type.Object({
   oldestFirst: Type.Optional(Type.Boolean({ description: "search: oldest hits first (default: newest first)" })),
 });
 
+/**
+ * What scripts such as codemode receive from recall instead of its text: the
+ * messages read by ids, untruncated, or a page of search hits.
+ */
+const recallOutput = Type.Object({
+  messages: Type.Optional(
+    Type.Array(
+      Type.Object({
+        id: Type.Integer({ description: "message number" }),
+        header: Type.String({ description: "user, assistant, <tool> output for #<call id>, ..." }),
+        text: Type.String({ description: "text, tool calls and tool output; never thinking" }),
+      }),
+      { description: "ids: the messages read, in full" },
+    ),
+  ),
+  search: Type.Optional(
+    Type.Object(
+      {
+        total: Type.Integer({ description: "matching messages and notes, all pages" }),
+        offset: Type.Integer(),
+        hits: Type.Array(
+          Type.Object({
+            id: Type.String({ description: "message number or note id; pass it to recall ids" }),
+            kind: StringEnum(["message", "note"] as const),
+            header: Type.String(),
+            range: Type.Optional(
+              Type.Array(Type.Integer(), { description: "note: first and last message it replaced" }),
+            ),
+            matches: Type.Integer(),
+            snippet: Type.String(),
+          }),
+        ),
+      },
+      { description: "query: this page of hits" },
+    ),
+  ),
+});
+
 // The tool arguments that are ids or text, lists of ids, and lists of
 // objects with id fields.
 const ID_SCALARS = ["query", "range"];
@@ -120,7 +158,16 @@ export function stringIds(args: unknown): unknown {
 }
 
 /** Runs a recall search; a range takes the forms ids take. */
-function search(view: BranchView, params: Static<typeof recallParameters>): string {
+/**
+ * The tool calls running a nested call: pi names a call from inside another
+ * tool <parent id>/<n>, so "a/1/2" runs inside "a/1", which runs inside "a".
+ */
+export function callersOf(toolCallId: string): string[] {
+  const parts = toolCallId.split("/");
+  return parts.slice(1).map((_, i) => parts.slice(0, i + 1).join("/"));
+}
+
+function search(view: BranchView, params: Static<typeof recallParameters>, toolCallId: string) {
   const range = params.range === undefined ? undefined : resolveIds(view, [params.range], true)[0];
   const q = {
     query: params.query ?? "",
@@ -132,8 +179,15 @@ function search(view: BranchView, params: Static<typeof recallParameters>): stri
     ...(params.limit === undefined ? {} : { limit: params.limit }),
     ...(params.offset === undefined ? {} : { offset: params.offset }),
     ...(params.oldestFirst === undefined ? {} : { oldestFirst: params.oldestFirst }),
+    callers: callersOf(toolCallId),
   };
-  return renderSearch(q, searchOriginals(view, q));
+  const r = searchOriginals(view, q);
+  const structuredContent: Static<typeof recallOutput> = { search: r };
+  return {
+    content: [{ type: "text" as const, text: renderSearch(q, r) }],
+    details: undefined,
+    structuredContent,
+  };
 }
 
 const text = (t: string) => ({ content: [{ type: "text" as const, text: t }], details: undefined });
@@ -157,6 +211,8 @@ export function registerTools(pi: ExtensionAPI, deps: ToolDeps): void {
     // A call from another tool, such as a codemode script, has neither: it
     // would report a compaction that is never applied.
     exposure: "model-only",
+    // It only appends entries; the originals stay in the session for recall.
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     description: COMPACT_DESCRIPTION,
     promptSnippet: "Selectively compact older conversation context",
     promptGuidelines: COMPACT_PROMPT_GUIDELINES,
@@ -203,28 +259,29 @@ export function registerTools(pi: ExtensionAPI, deps: ToolDeps): void {
   pi.registerTool({
     name: RECALL_TOOL,
     label: "Recall",
+    annotations: { readOnlyHint: true, openWorldHint: false },
     description: RECALL_DESCRIPTION,
+    outputSchema: recallOutput,
     promptSnippet: "Retrieve original messages hidden or compacted by compact_in_place",
     promptGuidelines: RECALL_PROMPT_GUIDELINES,
     parameters: recallParameters,
     prepareArguments: (args) => stringIds(args) as Static<typeof recallParameters>,
-    execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    execute(toolCallId, params, _signal, _onUpdate, ctx) {
       const view = currentView(ctx);
       if (params.query !== undefined) {
         if (params.ids !== undefined) throw new Error("give ids or query, not both");
-        return Promise.resolve(text(search(view, params)));
+        return Promise.resolve(search(view, params, toolCallId));
       }
       if (params.ids === undefined) throw new Error("give ids to read messages, or query to search them");
       const spans = resolveIds(view, params.ids);
+      const structuredContent: Static<typeof recallOutput> = { messages: originals(view, spans) };
       const full = renderOriginals(view, spans);
       const t = truncateHead(full, { maxLines: DEFAULT_MAX_LINES, maxBytes: DEFAULT_MAX_BYTES });
-      if (!t.truncated) return Promise.resolve(text(full));
-      return Promise.resolve(
-        text(
-          `${t.content}\n\n[Output truncated: ${t.outputLines} of ${t.totalLines} lines ` +
-            `(${formatSize(t.outputBytes)} of ${formatSize(t.totalBytes)}). Ask for fewer ids to see the rest.]`,
-        ),
-      );
+      const shown = t.truncated
+        ? `${t.content}\n\n[Output truncated: ${t.outputLines} of ${t.totalLines} lines ` +
+          `(${formatSize(t.outputBytes)} of ${formatSize(t.totalBytes)}). Ask for fewer ids to see the rest.]`
+        : full;
+      return Promise.resolve({ ...text(shown), structuredContent });
     },
   });
 }

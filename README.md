@@ -57,6 +57,13 @@ The model can use two tools:
 
 Only the model can call `compact_in_place`. Other tools, for example Pi codemode scripts, cannot call it. pi-percy applies a compaction when the result of its tool call ends the turn, and then hides that call. A call from a script does not have its own tool call, so pi-percy cannot apply it. Scripts can call `recall`.
 
+A script that calls `recall` gets data, not text:
+
+- Reading by `ids` gives `{ messages: [{ id, header, text }] }`. The text is not truncated, so a script can filter long output before the model sees it.
+- A search gives `{ search: { total, offset, hits } }`. Each hit has `id`, `kind` (`message` or `note`), `header`, `matches`, and `snippet`. A note hit also has `range`, the first and last message that the note replaced.
+
+The tools also declare annotations for permission extensions. `recall` is read-only. `compact_in_place` is not read-only, but it is not destructive: it only adds session entries, and the original entries stay. Neither tool goes outside the session.
+
 The index groups a tool call with its outputs. It marks protected rows. It does not show the recent part.
 
 The agent can do these actions:
@@ -100,7 +107,7 @@ recall { query: "connection refused", tool: "bash" }
 Search returns one line for each message or note that matches. Each line shows the ID, the header, and some text around the first match. The agent then recalls the IDs that it needs. Search uses these rules:
 
 - It searches the same text that recall returns. It also searches compaction notes.
-- It does not search thinking, nudges, or the calls and outputs of `compact_in_place` and `recall`. These repeat notes and old messages. It also does not search a tool call that called `recall` or `compact_in_place` itself, for example a codemode script, or the output of that call. Pi records these nested calls in the tool result. Search skips the full script, also when the script did other work.
+- It does not search thinking, nudges, or the calls and outputs of `compact_in_place` and `recall`. These repeat notes and old messages. It also does not search a tool call that called `recall` or `compact_in_place` itself, for example a codemode script, or the output of that call. Pi records these nested calls in the tool result. Search skips the full script, also when the script did other work. While a script runs, its result does not exist yet. Pi gives a nested call an ID that starts with the ID of the script, so search also skips the script that calls it.
 - It matches plain text and ignores case. Set `regex` to use a JavaScript regular expression. Set `caseSensitive` to match case.
 - `role` (`user`, `assistant`, `tool`, `summary`, or `note`) searches only that kind of text. `tool` searches only the calls to that tool, by their arguments, and the outputs of that tool. `tool` with role `user`, `summary`, or `note` is an error.
 - `range` (for example `30000-34000`) searches only those messages. A note is in the range if a message that it replaced is in the range. If the range continues after the last message, the search stops at the last message.
@@ -129,14 +136,14 @@ New user input cancels the idle timer. An idle compaction does not start another
 
 ## Commands
 
-| Command                                      | Purpose                                                                                                     |
-| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `/percy:compact-in-place [instructions]`     | Activate `compact_in_place` if needed. Ask the agent to compact context. Instructions can say what to keep. |
-| `/percy:compact-debug [index\|squish\|trim]` | Show the index or record a direct test compaction. Use this command for development.                        |
-| `/percy:rewind-compaction`                   | Rewind the active branch to before the newest pi-percy compaction.                                          |
-| `/percy:toggle-compaction`                   | Enable or disable pi-percy context compaction for this session.                                             |
-| `/percy:status`                              | Show pi-percy state, context estimate, nudge schedule, and idle timer without a model request.              |
-| `/reload`                                    | Reload Pi extensions and read changed settings.                                                             |
+| Command                                      | Purpose                                                                                        |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `/percy:compact-in-place [instructions]`     | Ask the agent to compact context. Instructions can say what to keep.                           |
+| `/percy:compact-debug [index\|squish\|trim]` | Show the index or record a direct test compaction. Use this command for development.           |
+| `/percy:rewind-compaction`                   | Rewind the active branch to before the newest pi-percy compaction.                             |
+| `/percy:toggle-compaction`                   | Enable or disable pi-percy context compaction for this session.                                |
+| `/percy:status`                              | Show pi-percy state, context estimate, nudge schedule, and idle timer without a model request. |
+| `/reload`                                    | Reload Pi extensions and read changed settings.                                                |
 
 The usual workflow is automatic. Wait for a context nudge. The agent uses its index and calls `compact_in_place`. Use `/percy:compact-in-place` when you want to request compaction earlier.
 
