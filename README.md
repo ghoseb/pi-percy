@@ -85,7 +85,18 @@ Pi applies the edits when it builds model context. The `recall` tool reads the o
 recall { ids: ["42", "50-57", "s103.0"] }
 ```
 
+Recall reaches every message on the current branch. This includes messages before a summary from Pi's own compaction.
+
 Recall does not return thinking blocks. It returns text, tool calls, and tool outputs. If a message holds only thinking, recall skips that message. Some providers refuse a request that sends old reasoning back to the model.
+
+The `recall` tool description tells the agent when to use recall:
+
+- Use recall to get exact text that a note or summary did not keep: commands, IDs, error messages, measured numbers, or the exact words of a user decision.
+- Use recall when a note is not clear, or when it does not agree with the current state.
+- Use recall before the agent says that an earlier check passed, if a note only says so.
+- Use recall when the source is not available in a different location, for example a deleted file or old command output.
+- Do not use recall when the source is still available. Read the file or run the command again.
+- Do not use recall to examine a decision again if a note already records it.
 
 `/tree` shows raw `percy-nudge`, `percy-compaction`, and `context_edit` entries. These records provide a durable audit trail for the active branch. After compaction, Pi does not send the related nudge or completed compaction call to the model.
 

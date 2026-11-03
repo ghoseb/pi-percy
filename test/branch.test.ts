@@ -178,6 +178,10 @@ test("after a pi compaction the view starts with its summary", () => {
   const v = view(sm);
   assert.equal(v.items[0]!.message.role, "compactionSummary");
   assert.equal(spans(v.items), "7-7 5-5 6-6");
+  // recall still reaches the messages behind pi's summary.
+  const recalled = renderOriginals(v, resolveIds(v, ["1-4"]));
+  assert.ok(recalled.includes("## Message 1 (user)\ndo it"), recalled);
+  assert.ok(recalled.includes(`## Message 4 (bash output for #a)\n${x(800)}`), recalled);
 });
 
 test("system messages are left out of the view", () => {

@@ -90,7 +90,7 @@ test("a nudge due while a message is queued waits for the next request", async (
   let steered = false;
   const h: Harness = await startHarness(
     // One level: the reply to hello is below it, the call's response above.
-    { nudge: { at: 1_500, step: 1_000_000 } },
+    { nudge: { at: 3_000, step: 1_000_000 } },
     {
       // Steers while the call's request is in flight; answers it with a call.
       respond: async (messages) => {
@@ -107,9 +107,9 @@ test("a nudge due while a message is queued waits for the next request", async (
   );
   try {
     await h.send("hello");
-    await h.call("echo", { text: "x".repeat(4000) });
+    await h.call("echo", { text: "x".repeat(8000) });
     const [hello, call, again] = responseSizes(h);
-    assert.ok(hello! < 1_500 && call! >= 1_500 && again! >= call!, `sizes ${responseSizes(h).join(", ")}`);
+    assert.ok(hello! < 3_000 && call! >= 3_000 && again! >= call!, `sizes ${responseSizes(h).join(", ")}`);
     // The call's response crossed the level while "steered" was queued.
     // Shelley sends queued messages before the nudge; pi adds them after the
     // turn's entries, so the nudge waits for the next batch's request rather

@@ -36,10 +36,18 @@ const COMPACT_PROMPT_GUIDELINES = [
 ];
 
 const RECALL_DESCRIPTION = [
-  `Retrieve original messages from the current branch, including content hidden, collapsed, or trimmed by ${COMPACT_TOOL}.`,
+  `Retrieve original messages from the current branch, word for word, including content hidden, collapsed, or trimmed by ${COMPACT_TOOL}.`,
+  "Every message on the current branch can be recalled, including history before a compaction summary; it is not lost.",
   "Give message numbers, ranges like 12-20, or note ids like s30.1 (for the messages the note replaced).",
+  "Recall when you need exact text that a note or summary did not keep (commands, ids, error messages, measured numbers, the user's exact wording of a decision), when a note is vague or contradicts the current state, before you claim an earlier check passed when a note only says it did, or when the source exists nowhere else (deleted files, old command output).",
+  "Do not recall when the source still exists: read the file or run the command again, because the current state is better than an old copy.",
+  "Do not recall to re-check a decision that a note already records.",
   `Output is truncated to ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}; ask for fewer ids to see more.`,
 ].join(" ");
+
+const RECALL_PROMPT_GUIDELINES = [
+  "Use recall for exact details that compaction notes or summaries dropped before you rely on them; when the file or command output still exists, read or run it again instead.",
+];
 
 const compactParameters = Type.Object({
   action: StringEnum(["index", "compact"] as const),
@@ -156,6 +164,7 @@ export function registerTools(pi: ExtensionAPI, deps: ToolDeps): void {
     label: "Recall",
     description: RECALL_DESCRIPTION,
     promptSnippet: "Retrieve original messages hidden or compacted by compact_in_place",
+    promptGuidelines: RECALL_PROMPT_GUIDELINES,
     parameters: recallParameters,
     prepareArguments: (args) => stringIds(args) as Static<typeof recallParameters>,
     execute(_toolCallId, params, _signal, _onUpdate, ctx) {
