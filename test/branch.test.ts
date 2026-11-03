@@ -94,7 +94,7 @@ test("a committed compaction shows as notes and trimmed outputs", () => {
   assert.deepEqual(spansOf, [[2, 5]]);
   const recalled = renderOriginals(again, spansOf);
   assert.ok(recalled.includes(`## Message 2 (assistant)\nPlan: `), recalled);
-  assert.ok(recalled.includes(`## Message 3 (assistant)\n[tool call bash#a] {"command":"make"}`), recalled);
+  assert.ok(recalled.includes(`## Message 3 (assistant)\n[tool call bash#a]\ncommand: make`), recalled);
   assert.ok(recalled.includes(`## Message 4 (bash output for #a)\n${x(800)}`), recalled);
   assert.throws(
     () => resolveIds(again, ["0", "9-8", "99"]),
@@ -118,10 +118,7 @@ test("recall drops thinking and skips messages that held only thinking", () => {
   assert.ok(!recalled.includes("SECRET-REASONING"), recalled);
   assert.ok(!recalled.includes("[thinking]"), recalled);
   assert.ok(!recalled.includes("## Message 2"), recalled);
-  assert.ok(
-    recalled.includes('## Message 3 (assistant)\nRunning make.\n[tool call bash#a] {"command":"make"}'),
-    recalled,
-  );
+  assert.ok(recalled.includes("## Message 3 (assistant)\nRunning make.\n[tool call bash#a]\ncommand: make"), recalled);
   assert.ok(recalled.includes("## Message 4 (bash output for #a)\nbuilt"), recalled);
   assert.equal(renderOriginals(view(sm), resolveIds(view(sm), ["2"])), "Those ids hold no messages.");
 });

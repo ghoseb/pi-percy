@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  readableArguments,
   renderOriginals,
   renderSearch,
   resolveIds,
@@ -132,6 +133,23 @@ test("search pages through hits", () => {
   assert.throws(() => search({ query: "" }), /query/);
 });
 
+test("tool call arguments read as name: value lines, strings as written", () => {
+  assert.equal(
+    readableArguments({ command: 'git commit -m "fix: it"\necho done', timeout: 30, opts: { a: [1] } }),
+    '\ncommand: git commit -m "fix: it"\necho done\ntimeout: 30\nopts: {"a":[1]}',
+  );
+  assert.equal(readableArguments({}), "");
+  assert.equal(readableArguments(["a"]), '\n["a"]');
+  assert.equal(readableArguments(undefined), "");
+
+  // Search matches quotes and newlines as written, without JSON escapes.
+  const v = view(session([user(0, "go"), call(0, "q", "bash", { command: 'git commit -m "fix: it"\necho done' })]));
+  const ids = (q: SearchQuery) => searchOriginals(v, q).hits.map((h) => h.id);
+  assert.deepEqual(ids({ query: '-m "fix: it"' }), ["2"]);
+  assert.deepEqual(ids({ query: 'it"\necho', regex: true }), ["2"]);
+  assert.deepEqual(ids({ query: '\\"' }), []);
+});
+
 test("search lines name the ids to recall", () => {
   const q = { query: "widget", tool: "bash" };
   assert.equal(
@@ -139,7 +157,7 @@ test("search lines name the ids to recall", () => {
     [
       '2 messages or notes match "widget" (newest first, 1-2 of 2):',
       `4 (bash output for #a) widget deployed ${x(80 - " deployed ".length)}…`,
-      '3 (assistant) [tool call bash#a] {"command":"deploy widget --prod"}',
+      "3 (assistant) [tool call bash#a] command: deploy widget --prod",
       "Recall these ids to read them in full.",
     ].join("\n"),
   );

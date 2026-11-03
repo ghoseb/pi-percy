@@ -113,7 +113,7 @@ Search returns one line for each message or note that matches. Each line shows t
 - It matches plain text and ignores case. Set `regex` to use a JavaScript regular expression. Set `caseSensitive` to match case.
 - `role` (`user`, `assistant`, `tool`, `summary`, or `note`) searches only that kind of text. `tool` searches only the calls to that tool, by their arguments, and the outputs of that tool. `tool` with role `user`, `summary`, or `note` is an error.
 - `range` (for example `30000-34000`) searches only those messages. A note is in the range if a message that it replaced is in the range. If the range continues after the last message, the search stops at the last message.
-- Search reads tool call arguments as JSON, in the same form that recall shows them. A quote in an argument is `\"`, and a new line is `\n`.
+- Recall shows each tool call argument on its own line as `name: value`. A string value is shown as written, with real quotes and new lines. Search reads the arguments in the same form, so a query can use plain text.
 - The newest matches come first. Set `oldestFirst` to change the order. Search shows 20 matches. Use `limit` (up to 100) and `offset` to see more.
 - A search stops after 2 seconds, so a regular expression that backtracks without end cannot stop the agent.
 

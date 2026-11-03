@@ -116,7 +116,7 @@ function contentParts(
       case "text":
         return part(c.text ?? "");
       case "toolCall":
-        return part(`[tool call ${c.name}#${c.id}] ${JSON.stringify(c.arguments)}`, {
+        return part(`[tool call ${c.name}#${c.id}]${readableArguments(c.arguments)}`, {
           tool: c.name ?? "",
           callId: c.id ?? "",
         });
@@ -325,6 +325,20 @@ function findMatches(
     const message = (e as { message?: unknown }).message;
     throw new SearchError(`invalid regex: ${typeof message === "string" ? message : String(e)}`);
   }
+}
+
+/**
+ * A tool call's arguments for reading: one line per field, "name: value",
+ * each after a newline. Strings appear as they are, with real quotes and
+ * newlines; other values, and arguments that are not an object, as JSON.
+ */
+export function readableArguments(args: unknown): string {
+  if (typeof args !== "object" || args === null || Array.isArray(args)) {
+    return args === undefined ? "" : `\n${JSON.stringify(args)}`;
+  }
+  return Object.entries(args as Record<string, unknown>)
+    .map(([name, value]) => `\n${name}: ${typeof value === "string" ? value : JSON.stringify(value)}`)
+    .join("");
 }
 
 /** One line of text around a match, whitespace collapsed. */
