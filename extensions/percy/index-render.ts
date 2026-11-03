@@ -17,7 +17,8 @@ function guidance(maxCollapseTokens: number): string {
     "Preserve one short note that states the completed task, its outcome, and any durable decision or path.",
     "Do not retain intermediate failed attempts unless they constrain current work.",
     "Trim tool outputs you no longer need. Big tool inputs and outputs are most of the context, so focus there.",
-    `Compacting only a little is fine; when unsure, leave it. Originals stay retrievable by id with the ${RECALL_TOOL} tool.`,
+    "Each compaction rewrites history and costs a cache rebuild, so prefer one substantial compaction (tens of thousands of tokens) over several small ones. A small compaction is still allowed when it is all that is useful.",
+    `Originals stay retrievable by id with the ${RECALL_TOOL} tool.`,
   ].join(" ");
   const request = [
     `Then call ${COMPACT_TOOL} with action "compact": trim lists ids of rows whose tool outputs you no longer need, and collapseUnits lists {id, note} safe units below. Raw collapse {from, to, note} ranges remain available for advanced use.`,
@@ -144,7 +145,11 @@ export function describeRow(row: Row): string {
         break;
       case "branchSummary":
       case "compactionSummary":
-        parts.push(`summary ${quoteStart(m.summary)}`);
+        parts.push(
+          it.summarizes
+            ? `pi summary of messages ${it.summarizes.from}-${it.summarizes.to} (recall them for details) ${quoteStart(m.summary)}`
+            : `summary ${quoteStart(m.summary)}`,
+        );
         break;
     }
   }

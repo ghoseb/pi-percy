@@ -110,7 +110,8 @@ export function branchView(branch: readonly SessionEntry[], projection: SessionP
         items.push({ from: note.from, to: note.to, note: { id: note.id, summary: note.summary }, message });
       } else {
         const n = seq(sourceEntry.id);
-        items.push({ from: n, to: n, message });
+        const summarizes = summarizedBy(sourceEntry, seqOf);
+        items.push(summarizes ? { from: n, to: n, message, summarizes } : { from: n, to: n, message });
       }
     }
   }
@@ -122,6 +123,17 @@ export function branchView(branch: readonly SessionEntry[], projection: SessionP
     entryAt: (n) => numbered[n - 1],
     recordAt: (n) => records.get(n),
   };
+}
+
+/**
+ * The messages pi's own compaction entry replaced with its summary: every
+ * message before the first one it kept. Earlier pi summaries are folded into
+ * the later one, so the range starts at 1.
+ */
+function summarizedBy(entry: SessionEntry, seqOf: ReadonlyMap<string, number>) {
+  if (entry.type !== "compaction") return undefined;
+  const firstKept = seqOf.get(entry.firstKeptEntryId);
+  return firstKept !== undefined && firstKept > 1 ? { from: 1, to: firstKept - 1 } : undefined;
 }
 
 /**

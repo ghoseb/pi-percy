@@ -38,6 +38,14 @@ test("pi's compaction summarizes the compacted view", async () => {
     // reaches the original.
     await h.call("compact_in_place", { action: "index" });
     assert.equal(h.lastToolResult().isError, false, h.lastToolResult().text);
+    // The index says which messages pi's summary replaced.
+    const compaction = branch().find((e) => e.type === "compaction")!;
+    const firstKept =
+      branch().findIndex((e) => e.id === (compaction as { firstKeptEntryId: string }).firstKeptEntryId) + 1;
+    assert.ok(
+      h.lastToolResult().text.includes(`pi summary of messages 1-${firstKept - 1} (recall them for details)`),
+      h.lastToolResult().text,
+    );
     await h.call("recall", { ids: [resultSeq] });
     assert.ok(h.lastToolResult().text.includes("A".repeat(20)), h.lastToolResult().text);
   } finally {

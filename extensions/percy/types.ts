@@ -32,6 +32,11 @@ export interface Item {
    * whose content the note replaced, is message from.
    */
   note?: Note;
+  /**
+   * Set on pi's own compaction summary: the messages it replaced, from 1 to
+   * the message before the first one pi kept. They stay recallable.
+   */
+  summarizes?: { from: number; to: number };
 }
 
 /**

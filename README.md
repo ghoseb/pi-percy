@@ -94,7 +94,7 @@ Pi applies the edits when it builds model context. The `recall` tool reads the o
 recall { ids: ["42", "50-57", "s103.0"] }
 ```
 
-Recall reaches every message on the current branch. This includes messages before a summary from Pi's own compaction.
+Recall reaches every message on the current branch. This includes messages before a summary from Pi's own compaction. The index row of such a summary says which messages it replaced, for example `pi summary of messages 1-4800 (recall them for details)`.
 
 Recall does not return thinking blocks. It returns text, tool calls, and tool outputs. If a message holds only thinking, recall skips that message. Some providers refuse a request that sends old reasoning back to the model.
 
