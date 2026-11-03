@@ -9,7 +9,18 @@ import { COMPACT_TOOL, DEFAULT_LIMITS, emptyCompaction, type Item, NUDGE_TYPE } 
 import { compactRequest } from "../extensions/percy/validate.ts";
 import { applyCompaction, editsBetween } from "../extensions/percy/view.ts";
 import { anthropicWire, misplacedSystemMessages } from "./anthropic-wire.ts";
-import { assistant, call, compactCall, output, spans, textOf, user, x } from "./fixtures.ts";
+import {
+  assistant,
+  assistantMessage,
+  call,
+  compactCall,
+  output,
+  spans,
+  textOf,
+  toolCall,
+  user,
+  x,
+} from "./fixtures.ts";
 
 type Appendable = Parameters<SessionManager["appendMessage"]>[0];
 const limits = { ...DEFAULT_LIMITS, keepRecentTokens: 1 };
@@ -115,6 +126,30 @@ test("a committed compaction shows as notes and trimmed outputs", () => {
     () => resolveIds(again, ["0", "9-8", "99"]),
     /0: messages are numbered[\s\S]*9-8: the range ends before[\s\S]*99: messages/,
   );
+});
+
+test("recall drops thinking and skips messages that held only thinking", () => {
+  const sm = session([
+    user(0, "do it"),
+    assistantMessage(0, { type: "thinking", thinking: "SECRET-REASONING-1" }),
+    assistantMessage(
+      0,
+      { type: "thinking", thinking: "SECRET-REASONING-2" },
+      { type: "text", text: "Running make." },
+      toolCall("a", "bash", { command: "make" }),
+    ),
+    output(0, "a", "built"),
+  ]);
+  const recalled = renderOriginals(view(sm), resolveIds(view(sm), ["1-4"]));
+  assert.ok(!recalled.includes("SECRET-REASONING"), recalled);
+  assert.ok(!recalled.includes("[thinking]"), recalled);
+  assert.ok(!recalled.includes("## Message 2"), recalled);
+  assert.ok(
+    recalled.includes('## Message 3 (assistant)\nRunning make.\n[tool call bash#a] {"command":"make"}'),
+    recalled,
+  );
+  assert.ok(recalled.includes("## Message 4 (bash output for #a)\nbuilt"), recalled);
+  assert.equal(renderOriginals(view(sm), resolveIds(view(sm), ["2"])), "Those ids hold no messages.");
 });
 
 test("edits and notes are branch-relative", () => {

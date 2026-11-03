@@ -54,15 +54,21 @@ export function renderOriginals(view: BranchView, spans: readonly [number, numbe
 
 type Block = { type: string; text?: string; thinking?: string; name?: string; id?: string; arguments?: unknown };
 
-function renderContent(content: string | readonly Block[]): string {
+/**
+ * Content without thinking blocks. Recall never returns reasoning traces: a
+ * provider can refuse a request that feeds old reasoning back to the model, and
+ * what matters from old work is in its text, tool calls and outputs. Undefined
+ * when the content held only thinking.
+ */
+function renderContent(content: string | readonly Block[]): string | undefined {
   if (typeof content === "string") return content;
-  return content
+  const blocks = content.filter((c) => c.type !== "thinking");
+  if (blocks.length === 0 && content.length > 0) return undefined;
+  return blocks
     .map((c) => {
       switch (c.type) {
         case "text":
           return c.text ?? "";
-        case "thinking":
-          return `[thinking]\n${c.thinking ?? ""}`;
         case "toolCall":
           return `[tool call ${c.name}#${c.id}] ${JSON.stringify(c.arguments)}`;
         default:
@@ -70,6 +76,12 @@ function renderContent(content: string | readonly Block[]): string {
       }
     })
     .join("\n");
+}
+
+/** "(header)\n<content>", or undefined when the content held only thinking. */
+function withHeader(header: string, content: string | readonly Block[]): string | undefined {
+  const text = renderContent(content);
+  return text === undefined ? undefined : `(${header})\n${text}`;
 }
 
 /** "(role)\n<content>" for an entry that holds a message, else undefined. */
@@ -80,9 +92,9 @@ function renderEntry(entry: SessionEntry): string | undefined {
       switch (m.role) {
         case "user":
         case "assistant":
-          return `(${m.role})\n${renderContent(m.content)}`;
+          return withHeader(m.role, m.content);
         case "toolResult":
-          return `(${m.toolName} output for #${m.toolCallId}${m.isError ? ", error" : ""})\n${renderContent(m.content)}`;
+          return withHeader(`${m.toolName} output for #${m.toolCallId}${m.isError ? ", error" : ""}`, m.content);
         case "bashExecution":
           return `(user bash)\n$ ${m.command}\n${m.output}`;
         default:
@@ -90,7 +102,7 @@ function renderEntry(entry: SessionEntry): string | undefined {
       }
     }
     case "custom_message":
-      return `(${entry.customType})\n${renderContent(entry.content)}`;
+      return withHeader(entry.customType, entry.content);
     case "compaction":
     case "branch_summary":
       return `(summary)\n${entry.summary}`;

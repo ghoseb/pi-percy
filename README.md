@@ -85,6 +85,8 @@ Pi applies the edits when it builds model context. The `recall` tool reads the o
 recall { ids: ["42", "50-57", "s103.0"] }
 ```
 
+Recall does not return thinking blocks. It returns text, tool calls, and tool outputs. If a message holds only thinking, recall skips that message. Some providers refuse a request that sends old reasoning back to the model.
+
 `/tree` shows raw `percy-nudge`, `percy-compaction`, and `context_edit` entries. These records provide a durable audit trail for the active branch. After compaction, Pi does not send the related nudge or completed compaction call to the model.
 
 A compaction is one change: a `percy-compaction` record and the `context_edit` entries after it. pi-percy cancels a `/tree` jump to that record or to any of its edits except the last, because the branch would then hold only part of the compaction. To keep the compaction, pick its last `context_edit`. To go back before it, pick the entry before its record.
