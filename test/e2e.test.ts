@@ -142,6 +142,26 @@ ${GREETING}`),
   );
   assert.ok(range.text.includes("FIRST_OUTPUT"), range.text);
 
+  // Search finds the trimmed output and the note, and names their ids.
+  await h.call("recall", { query: "first_output" });
+  const found = h.lastToolResult();
+  assert.equal(found.isError, false, found.text);
+  assert.ok(found.text.includes(`${firstResultSeq} (echo output for #`), found.text);
+  await h.call("recall", { query: "greeted", role: "note" });
+  assert.ok(h.lastToolResult().text.includes(`${noteId} (note for `), h.lastToolResult().text);
+  // A search range may run past the last message.
+  await h.call("recall", { query: "first_output", range: `${firstResultSeq}-999999` });
+  assert.ok(h.lastToolResult().text.includes(`${firstResultSeq} (echo output for #`), h.lastToolResult().text);
+  // A numeric query is searched as text.
+  await h.call("recall", { query: 404 });
+  const numeric = h.lastToolResult();
+  assert.ok(!numeric.isError && numeric.text.includes('"404"'), numeric.text);
+
+  await h.call("recall", { ids: [noteId], query: "x" });
+  assert.ok(h.lastToolResult().isError && h.lastToolResult().text.includes("not both"), h.lastToolResult().text);
+  await h.call("recall", {});
+  assert.ok(h.lastToolResult().isError && h.lastToolResult().text.includes("give ids"), h.lastToolResult().text);
+
   await h.call("recall", { ids: ["s999.0", "x"] });
   const bad = h.lastToolResult();
   assert.ok(

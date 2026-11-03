@@ -1,14 +1,15 @@
 // The branch adapter against a real pi SessionManager, without an agent.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type SessionBoundaryDraft, SessionManager } from "@earendil-works/pi-coding-agent";
-import { branchView, compactionDrafts, compactionSplitBy } from "../extensions/percy/branch.ts";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { compactionDrafts, compactionSplitBy } from "../extensions/percy/branch.ts";
 import { noteText, trimmedText } from "../extensions/percy/messages.ts";
 import { renderOriginals, resolveIds } from "../extensions/percy/recall.ts";
-import { COMPACT_TOOL, DEFAULT_LIMITS, emptyCompaction, type Item, NUDGE_TYPE } from "../extensions/percy/types.ts";
+import { COMPACT_TOOL, emptyCompaction, NUDGE_TYPE } from "../extensions/percy/types.ts";
 import { compactRequest } from "../extensions/percy/validate.ts";
 import { applyCompaction, editsBetween } from "../extensions/percy/view.ts";
 import { anthropicWire, misplacedSystemMessages } from "./anthropic-wire.ts";
+import { type Appendable, commit, compact, limits, session, view } from "./sessions.ts";
 import {
   assistant,
   assistantMessage,
@@ -21,33 +22,6 @@ import {
   user,
   x,
 } from "./fixtures.ts";
-
-type Appendable = Parameters<SessionManager["appendMessage"]>[0];
-const limits = { ...DEFAULT_LIMITS, keepRecentTokens: 1 };
-
-function session(items: Item[]): SessionManager {
-  const sm = SessionManager.inMemory("/tmp");
-  for (const it of items) sm.appendMessage(it.message as Appendable);
-  return sm;
-}
-
-const view = (sm: SessionManager) => branchView(sm.getBranch(), sm.buildSessionProjection());
-
-/** Appends drafts the way pi does at a turn boundary. */
-function commit(sm: SessionManager, drafts: SessionBoundaryDraft[]) {
-  for (const d of drafts) {
-    if (d.type === "custom") sm.appendCustomEntry(d.customType, d.data);
-    else if (d.type === "context_edit") sm.appendContextEdit(d.targetId, d.replacement);
-    else throw new Error(`unexpected draft ${d.type}`);
-  }
-}
-
-/** Compacts sm's current view with input and commits it. */
-function compact(sm: SessionManager, input: Parameters<typeof compactRequest>[2]) {
-  const v = view(sm);
-  const r = compactRequest(v.items, limits, input);
-  commit(sm, compactionDrafts(v, r.compaction, r.edits, r));
-}
 
 const base = () => [
   user(0, "do it"),

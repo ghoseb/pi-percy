@@ -10,10 +10,10 @@ import {
   truncateHead,
 } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "typebox";
-import { compactionDrafts, currentView } from "./branch.ts";
+import { type BranchView, compactionDrafts, currentView } from "./branch.ts";
 import { buildIndex } from "./index-render.ts";
 import { isPlainObject } from "./messages.ts";
-import { renderOriginals, resolveIds } from "./recall.ts";
+import { renderOriginals, renderSearch, resolveIds, SEARCH_LIMITS, searchOriginals } from "./recall.ts";
 import { renderCompactCall, renderCompactResult } from "./render.ts";
 import type { PercySettings } from "./settings.ts";
 import { COMPACT_TOOL, type CompactDetails, RECALL_TOOL } from "./types.ts";
@@ -38,15 +38,17 @@ const COMPACT_PROMPT_GUIDELINES = [
 const RECALL_DESCRIPTION = [
   `Retrieve original messages from the current branch, word for word, including content hidden, collapsed, or trimmed by ${COMPACT_TOOL}.`,
   "Every message on the current branch can be recalled, including history before a compaction summary; it is not lost.",
-  "Give message numbers, ranges like 12-20, or note ids like s30.1 (for the messages the note replaced).",
+  "Give ids (message numbers, ranges like 12-20, or note ids like s30.1 for the messages the note replaced) to read messages, or query to search them.",
+  'Search when you do not know the message number: it returns one line per matching message or compaction note, newest first, and you then recall the ids you need. It matches plain text without regard to case unless regex or caseSensitive is set; role narrows it to user, assistant, tool, summary or note text, and tool to calls to that tool and its outputs. Tool call arguments are searched as JSON, as recall shows them: a quote or newline inside an argument is \\" or \\n there.',
   "Recall when you need exact text that a note or summary did not keep (commands, ids, error messages, measured numbers, the user's exact wording of a decision), when a note is vague or contradicts the current state, before you claim an earlier check passed when a note only says it did, or when the source exists nowhere else (deleted files, old command output).",
   "Do not recall when the source still exists: read the file or run the command again, because the current state is better than an old copy.",
   "Do not recall to re-check a decision that a note already records.",
-  `Output is truncated to ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}; ask for fewer ids to see more.`,
+  `Output is truncated to ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}; ask for fewer ids to see more. Thinking is never returned or searched.`,
 ].join(" ");
 
 const RECALL_PROMPT_GUIDELINES = [
   "Use recall for exact details that compaction notes or summaries dropped before you rely on them; when the file or command output still exists, read or run it again instead.",
+  "To find an old message whose number you do not know, search with recall query, then recall the ids it returns.",
 ];
 
 const compactParameters = Type.Object({
@@ -73,11 +75,27 @@ const compactParameters = Type.Object({
 });
 
 const recallParameters = Type.Object({
-  ids: Type.Array(Type.String(), { description: "message numbers, ranges like 12-20, or note ids like s30.1" }),
+  ids: Type.Optional(
+    Type.Array(Type.String(), { description: "message numbers, ranges like 12-20, or note ids like s30.1" }),
+  ),
+  query: Type.Optional(Type.String({ description: "search: text to find; give ids or query, not both" })),
+  regex: Type.Optional(Type.Boolean({ description: "search: query is a JavaScript regular expression" })),
+  caseSensitive: Type.Optional(Type.Boolean({ description: "search: match case (default: ignore case)" })),
+  role: Type.Optional(StringEnum(["user", "assistant", "tool", "summary", "note"] as const)),
+  tool: Type.Optional(Type.String({ description: "search: only calls to this tool and its outputs" })),
+  range: Type.Optional(
+    Type.String({
+      description: "search: only these messages, like 30000-34000; a range past the last message ends there",
+    }),
+  ),
+  limit: Type.Optional(Type.Integer({ description: `search: hits to show (default ${SEARCH_LIMITS.defaultLimit})` })),
+  offset: Type.Optional(Type.Integer({ description: "search: hits to skip, for the next page" })),
+  oldestFirst: Type.Optional(Type.Boolean({ description: "search: oldest hits first (default: newest first)" })),
 });
 
-// The tool arguments that are lists of ids, and those that are lists of
+// The tool arguments that are ids or text, lists of ids, and lists of
 // objects with id fields.
+const ID_SCALARS = ["query", "range"];
 const ID_LISTS = ["trim", "ids"];
 const ID_FIELDS: Record<string, readonly string[]> = { collapse: ["from", "to"], collapseUnits: ["id"] };
 
@@ -86,6 +104,7 @@ export function stringIds(args: unknown): unknown {
   if (!isPlainObject(args)) return args;
   const str = (v: unknown) => (typeof v === "number" ? String(v) : v);
   const out: Record<string, unknown> = { ...args };
+  for (const name of ID_SCALARS) if (name in args) out[name] = str(args[name]);
   for (const name of ID_LISTS) {
     const list = args[name];
     if (Array.isArray(list)) out[name] = list.map(str);
@@ -98,6 +117,23 @@ export function stringIds(args: unknown): unknown {
     );
   }
   return out;
+}
+
+/** Runs a recall search; a range takes the forms ids take. */
+function search(view: BranchView, params: Static<typeof recallParameters>): string {
+  const range = params.range === undefined ? undefined : resolveIds(view, [params.range], true)[0];
+  const q = {
+    query: params.query ?? "",
+    ...(params.regex === undefined ? {} : { regex: params.regex }),
+    ...(params.caseSensitive === undefined ? {} : { caseSensitive: params.caseSensitive }),
+    ...(params.role === undefined ? {} : { role: params.role }),
+    ...(params.tool === undefined ? {} : { tool: params.tool }),
+    ...(range === undefined ? {} : { range }),
+    ...(params.limit === undefined ? {} : { limit: params.limit }),
+    ...(params.offset === undefined ? {} : { offset: params.offset }),
+    ...(params.oldestFirst === undefined ? {} : { oldestFirst: params.oldestFirst }),
+  };
+  return renderSearch(q, searchOriginals(view, q));
 }
 
 const text = (t: string) => ({ content: [{ type: "text" as const, text: t }], details: undefined });
@@ -174,6 +210,11 @@ export function registerTools(pi: ExtensionAPI, deps: ToolDeps): void {
     prepareArguments: (args) => stringIds(args) as Static<typeof recallParameters>,
     execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const view = currentView(ctx);
+      if (params.query !== undefined) {
+        if (params.ids !== undefined) throw new Error("give ids or query, not both");
+        return Promise.resolve(text(search(view, params)));
+      }
+      if (params.ids === undefined) throw new Error("give ids to read messages, or query to search them");
       const spans = resolveIds(view, params.ids);
       const full = renderOriginals(view, spans);
       const t = truncateHead(full, { maxLines: DEFAULT_MAX_LINES, maxBytes: DEFAULT_MAX_BYTES });

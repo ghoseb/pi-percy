@@ -53,7 +53,7 @@ The model can use two tools:
 - `compact_in_place`
   - `action: "index"` lists old context that the agent can compact.
   - `action: "compact"` accepts `trim` and `collapse` operations.
-- `recall` gets original messages by message number, message range, or note ID.
+- `recall` gets original messages by message number, message range, or note ID. It also searches messages and notes.
 
 Only the model can call `compact_in_place`. Other tools, for example Pi codemode scripts, cannot call it. pi-percy applies a compaction when the result of its tool call ends the turn, and then hides that call. A call from a script does not have its own tool call, so pi-percy cannot apply it. Scripts can call `recall`.
 
@@ -90,6 +90,23 @@ recall { ids: ["42", "50-57", "s103.0"] }
 Recall reaches every message on the current branch. This includes messages before a summary from Pi's own compaction.
 
 Recall does not return thinking blocks. It returns text, tool calls, and tool outputs. If a message holds only thinking, recall skips that message. Some providers refuse a request that sends old reasoning back to the model.
+
+If the agent does not know the message number, it can search. Give `query` instead of `ids`:
+
+```text
+recall { query: "connection refused", tool: "bash" }
+```
+
+Search returns one line for each message or note that matches. Each line shows the ID, the header, and some text around the first match. The agent then recalls the IDs that it needs. Search uses these rules:
+
+- It searches the same text that recall returns. It also searches compaction notes.
+- It does not search thinking, nudges, or the calls and outputs of `compact_in_place` and `recall`. These repeat notes and old messages. It also does not search a tool call that called `recall` or `compact_in_place` itself, for example a codemode script, or the output of that call. Pi records these nested calls in the tool result. Search skips the full script, also when the script did other work.
+- It matches plain text and ignores case. Set `regex` to use a JavaScript regular expression. Set `caseSensitive` to match case.
+- `role` (`user`, `assistant`, `tool`, `summary`, or `note`) searches only that kind of text. `tool` searches only the calls to that tool, by their arguments, and the outputs of that tool. `tool` with role `user`, `summary`, or `note` is an error.
+- `range` (for example `30000-34000`) searches only those messages. A note is in the range if a message that it replaced is in the range. If the range continues after the last message, the search stops at the last message.
+- Search reads tool call arguments as JSON, in the same form that recall shows them. A quote in an argument is `\"`, and a new line is `\n`.
+- The newest matches come first. Set `oldestFirst` to change the order. Search shows 20 matches. Use `limit` (up to 100) and `offset` to see more.
+- A search stops after 2 seconds, so a regular expression that backtracks without end cannot stop the agent.
 
 The `recall` tool description tells the agent when to use recall:
 

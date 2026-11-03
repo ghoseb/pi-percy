@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import fc from "fast-check";
 import { compactionUnits } from "../extensions/percy/units.ts";
-import { resolveIds } from "../extensions/percy/recall.ts";
+import { renderOriginals, resolveIds, searchOriginals } from "../extensions/percy/recall.ts";
 import { buildCompaction } from "../extensions/percy/validate.ts";
 import {
   applyCompaction,
@@ -16,7 +16,8 @@ import {
 import { type AgentMessage, DEFAULT_LIMITS, type Item } from "../extensions/percy/types.ts";
 import type { BranchView } from "../extensions/percy/branch.ts";
 import { anthropicWire, misplacedSystemMessages } from "./anthropic-wire.ts";
-import { assistant, call, nudge, output, user } from "./fixtures.ts";
+import { assistant, assistantMessage, call, nudge, output, user } from "./fixtures.ts";
+import { session, view } from "./sessions.ts";
 
 /** A test-only projection of pi context edits, independent of applyCompaction. */
 function projectEdits(items: readonly Item[], edits: ReturnType<typeof editsBetween>): Item[] {
@@ -206,6 +207,63 @@ test("generated system boundaries match pi-ai's Anthropic request", async () => 
       const wire = misplacedSystemMessages(await anthropicWire(messages)).length > 0;
       assert.equal(percy, wire, `percy ${percy}, wire ${wire}: ${pieces.join(" ")}`);
     }),
+    { numRuns: 1_000 },
+  );
+});
+
+/** Words that never appear in recall's headers ("user", "bash output for #t1", ...). */
+const WORDS = ["alpha", "Beta", "GAMMA", "delta", "epsilon"] as const;
+const THINKING_ONLY = "zeta";
+
+const searchMessage = fc.oneof(
+  fc.record({ kind: fc.constant("user" as const), text: fc.array(fc.constantFrom(...WORDS), { maxLength: 4 }) }),
+  fc.record({
+    kind: fc.constant("assistant" as const),
+    text: fc.array(fc.constantFrom(...WORDS), { maxLength: 4 }),
+    thinking: fc.boolean(),
+  }),
+  fc.record({
+    kind: fc.constant("tool" as const),
+    tool: fc.constantFrom("bash", "read"),
+    args: fc.array(fc.constantFrom(...WORDS), { maxLength: 3 }),
+    out: fc.array(fc.constantFrom(...WORDS), { maxLength: 3 }),
+  }),
+);
+
+test("generated searches find exactly the messages whose recalled text holds the query", () => {
+  fc.assert(
+    fc.property(
+      fc.array(searchMessage, { minLength: 1, maxLength: 25 }),
+      fc.constantFrom(...WORDS, THINKING_ONLY),
+      fc.boolean(),
+      (messages, word, upper) => {
+        const items: Item[] = [];
+        messages.forEach((m, i) => {
+          if (m.kind === "user") items.push(user(0, m.text.join(" ")));
+          else if (m.kind === "assistant") {
+            const content = [{ type: "text" as const, text: m.text.join(" ") }];
+            items.push(
+              m.thinking
+                ? assistantMessage(0, { type: "thinking", thinking: THINKING_ONLY }, ...content)
+                : assistantMessage(0, ...content),
+            );
+          } else {
+            items.push(call(0, `t${i}`, m.tool, { arg: m.args.join(" ") }));
+            items.push(output(0, `t${i}`, m.out.join(" "), m.tool));
+          }
+        });
+        const v = view(session(items));
+        const query = upper ? word.toUpperCase() : word;
+        const hits = searchOriginals(v, { query, limit: 100 }).hits.map((h) => Number(h.id));
+        const expected: number[] = [];
+        for (let n = v.count; n >= 1; n--) {
+          const recalled = renderOriginals(v, [[n, n]]);
+          const body = recalled.slice(recalled.indexOf("\n") + 1);
+          if (recalled.startsWith("## Message") && body.toLowerCase().includes(word.toLowerCase())) expected.push(n);
+        }
+        assert.deepEqual(hits, expected);
+      },
+    ),
     { numRuns: 1_000 },
   );
 });
