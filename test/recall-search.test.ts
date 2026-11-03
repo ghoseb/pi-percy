@@ -102,6 +102,19 @@ test("role and tool narrow the search", () => {
   assert.throws(() => search({ query: "widget", tool: "bash", role: "user" }), /only assistant tool calls/);
 });
 
+test("messages from extensions are custom, not user", () => {
+  const sm = session([user(0, "check the verification gate")]);
+  sm.appendCustomMessageEntry("context-prune-summary", "Pruned: the verification gate passed.", true, {});
+  const v = view(sm);
+  const found = (q: Omit<SearchQuery, "query">) =>
+    searchOriginals(v, { query: "verification gate", ...q }).hits.map((h) => `${h.id} ${h.header}`);
+  assert.deepEqual(found({}), ["2 context-prune-summary", "1 user"]);
+  assert.deepEqual(found({ role: "custom" }), ["2 context-prune-summary"]);
+  assert.deepEqual(found({ role: "user" }), ["1 user"]);
+  assert.deepEqual(found({ role: "summary" }), []);
+  assert.throws(() => searchOriginals(v, { query: "gate", tool: "bash", role: "custom" }), /only assistant tool calls/);
+});
+
 test("range limits messages, and notes by the messages they replaced", () => {
   const v = view(widgetSession());
   assert.deepEqual(

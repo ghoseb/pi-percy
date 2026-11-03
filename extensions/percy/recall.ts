@@ -74,8 +74,12 @@ export function originals(view: BranchView, spans: readonly [number, number][]):
   return out;
 }
 
-/** Who a part of a message speaks as, as the model saw it. pi sends custom messages and user bash runs as user messages. */
-export type PartRole = "user" | "assistant" | "tool" | "summary";
+/**
+ * What kind of text a part of a message is. user is what the user typed or
+ * ran (user bash); custom is a message from an extension, which pi sends to
+ * the model as a user message; summary is pi's own compaction or branch summary.
+ */
+export type PartRole = "user" | "assistant" | "tool" | "summary" | "custom";
 
 /** One searchable piece of a message: a text block, one tool call, or a tool output. */
 interface Part {
@@ -152,7 +156,7 @@ function entryMessage(entry: SessionEntry): EntryMessage | undefined {
       }
     }
     case "custom_message":
-      return withHeader(entry.customType, contentParts(entry.content, "user"));
+      return withHeader(entry.customType, contentParts(entry.content, "custom"));
     case "compaction":
     case "branch_summary":
       return withHeader("summary", [{ role: "summary", text: entry.summary }]);
