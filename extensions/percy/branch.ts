@@ -10,6 +10,7 @@ import type {
   SessionProjection,
 } from "@earendil-works/pi-coding-agent";
 import { noteText, onlyText } from "./messages.ts";
+import { hideItems, safeCompactionEvidence } from "./view.ts";
 import { type Compaction, type Edit, type Item, type NudgeDetails, NUDGE_TYPE } from "./types.ts";
 
 /** The view of ctx's current branch. */
@@ -67,6 +68,8 @@ export interface BranchView {
   count: number;
   /** The squishes of the compaction recorded as entry seq. */
   recordAt: (seq: number) => StoredCompaction | undefined;
+  /** Timestamps (ms) of the stale nudges left out of items (see staleNudgeSeqs), to drop them from requests too. */
+  staleNudgeTimes: ReadonlySet<number>;
 }
 
 /**
@@ -115,14 +118,47 @@ export function branchView(branch: readonly SessionEntry[], projection: SessionP
       }
     }
   }
+  const stale = staleNudgeSeqs(numbered, items, systemBoundaries);
   return {
-    items,
+    items: stale.length === 0 ? items : hideItems(items, stale, []),
     systemBoundaries,
+    staleNudgeTimes: new Set(stale.map((n) => Date.parse(numbered[n - 1]!.timestamp))),
     seqOf,
     count: numbered.length,
     entryAt: (n) => numbered[n - 1],
     recordAt: (n) => records.get(n),
   };
+}
+
+/**
+ * Reports whether pi's latest compaction on branch kept a nudge from before
+ * it: a cheap check before building the view (see staleNudgeSeqs).
+ */
+export function mayHaveStaleNudges(branch: readonly SessionEntry[]): boolean {
+  const c = branch.findLastIndex((e) => e.type === "compaction");
+  if (c < 0) return false;
+  const entry = branch[c]!;
+  const kept = entry.type === "compaction" ? branch.findIndex((e) => e.id === entry.firstKeptEntryId) : -1;
+  return kept >= 0 && branch.slice(kept, c).some((e) => isNudgeEntry(e));
+}
+
+/**
+ * The nudges that pi's own compaction made stale: those in context that come
+ * before its latest compaction entry, which pi kept because they were recent.
+ * A nudge's index names the history it was built from, which pi's summary
+ * has since replaced, so its ids are wrong. A nudge stays when leaving it out
+ * would put a system message between assistant messages.
+ */
+function staleNudgeSeqs(
+  numbered: readonly SessionEntry[],
+  items: readonly Item[],
+  systemBoundaries: readonly number[],
+): number[] {
+  if (!mayHaveStaleNudges(numbered)) return [];
+  const compaction = numbered.findLastIndex((e) => e.type === "compaction") + 1;
+  const seqs = items.filter((it) => !it.note && it.from < compaction && isNudgeEntry(numbered[it.from - 1]!));
+  if (seqs.length === 0) return [];
+  return safeCompactionEvidence(items, { seqs: seqs.map((it) => it.from), toolCallIds: [] }, systemBoundaries).seqs;
 }
 
 /**

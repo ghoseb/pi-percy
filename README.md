@@ -44,7 +44,7 @@ By default, pi-percy sends a nudge after a response reports 200k context tokens.
 
 pi-percy sends another nudge for each 50k tokens after the first nudge. It keeps the newest 20k tokens unchanged. The index does not show this recent part.
 
-Pi's own compaction stays enabled. On a model with a one-million-token window and Pi's default reserve, Pi starts its fallback compaction at about 984k tokens. pi-percy therefore has time to compact first. Pi's compaction is still the safety fallback if the agent does not compact successfully.
+Pi's own compaction stays enabled. On a model with a one-million-token window and Pi's default reserve, Pi starts its fallback compaction at about 984k tokens. pi-percy therefore has time to compact first. Pi's compaction is still the safety fallback if the agent does not compact successfully. Pi's compaction keeps recent messages, and these can include a nudge. The index of that nudge names messages that Pi has just summarized, so its ids are wrong. pi-percy leaves such a nudge out of the index and out of every later request, including the retry after a context overflow.
 
 ### 2. The agent selects what to compact
 

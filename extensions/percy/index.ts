@@ -25,6 +25,7 @@ import {
   currentView,
   isNudgeEntry,
   isRecordEntry,
+  mayHaveStaleNudges,
   RECORD_TYPE,
   type StoredCompaction,
 } from "./branch.ts";
@@ -39,7 +40,7 @@ import {
   worthIdleCompaction,
 } from "./idle.ts";
 import { compactIndex } from "./index-render.ts";
-import { errorText } from "./messages.ts";
+import { errorText, isNudgeMessage } from "./messages.ts";
 import {
   contextTokens,
   decideNudge,
@@ -155,6 +156,17 @@ export function createPercyExtension(options: PercyOptions = {}) {
       idle.arm(ctx);
     });
     pi.on("model_select", (event, ctx) => checkModel(ctx, event.model));
+    // pi's own compaction keeps recent messages, which can include a nudge
+    // whose index names the history pi has just summarized. branchView leaves
+    // such nudges out; leave them out of every request too, also the retry
+    // that follows pi's overflow recovery. Settled after the compaction, so
+    // the requests stay the same and cached.
+    pi.on("context", (event, ctx) => {
+      if (!mayHaveStaleNudges(ctx.sessionManager.getBranch())) return;
+      const stale = currentView(ctx).staleNudgeTimes;
+      if (stale.size === 0) return;
+      return { messages: event.messages.filter((m) => !(isNudgeMessage(m) && stale.has(m.timestamp))) };
+    });
     // A branch ending inside a compaction would hold half of it, which no
     // validation checked. pi lets an extension cancel a jump, not redirect it.
     pi.on("session_before_tree", (event, ctx) => {

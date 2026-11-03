@@ -30,6 +30,19 @@ export const RETRY_GUIDANCE =
  * The error for a rejected request: its problems, all at once, then how to
  * retry. One problem reads as a sentence; several as a list.
  */
+/**
+ * Several unknown unit ids usually mean the index is out of date: a later
+ * compaction, pi's own included, numbered the units again. One problem says
+ * so, instead of one per id.
+ */
+function unknownUnitsProblem(ids: readonly string[]): string {
+  const shown = ids.length > 5 ? `${ids.slice(0, 5).join(", ")} and ${ids.length - 5} more` : ids.join(", ");
+  return (
+    `collapse units ${shown}: not in the current history; the index they came from is out of date ` +
+    `(a compaction, pi's own included, changed the history since). Call action "index" and use its ids`
+  );
+}
+
 /** A request with problems, so nothing was compacted. Its message is the reply to the agent. */
 export class CompactionProblems extends Error {
   readonly problems: string[];
@@ -223,6 +236,7 @@ export function compactRequest(
   const units = new Map(available.units.map((unit) => [unit.id, unit]));
   const unitProblems: string[] = [];
   const seenUnits = new Set<string>();
+  const unknownUnits: string[] = [];
   const selected = unitSelections.flatMap(({ id, note }): CollapseRequest[] => {
     if (seenUnits.has(id)) {
       unitProblems.push(`collapse unit ${id}: listed twice`);
@@ -231,11 +245,16 @@ export function compactRequest(
     seenUnits.add(id);
     const unit = units.get(id);
     if (!unit) {
-      unitProblems.push(`collapse unit ${id}: unknown id; use ids from the index`);
+      unknownUnits.push(id);
       return [];
     }
     return [{ from: unit.from, to: unit.to, note, unit: id }];
   });
+  if (unknownUnits.length === 1) {
+    unitProblems.push(`collapse unit ${unknownUnits[0]}: unknown id; use ids from the index`);
+  } else if (unknownUnits.length > 1) {
+    unitProblems.push(unknownUnitsProblem(unknownUnits));
+  }
   const compaction = buildCompaction(
     history,
     limits,

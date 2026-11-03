@@ -174,6 +174,18 @@ test("compactRequest expands a safe collapse unit", () => {
   assert.deepEqual(result.compaction.squishes, [{ from: 2, to: 4, summary: "Completed the old task." }]);
 });
 
+// Ids from an out-of-date index, for example one built before pi's own
+// compaction, are reported once, with how to get current ids.
+test("compactRequest reports unknown units from an old index as one problem", () => {
+  const history = [user(1, "do it"), call(2, "a"), output(3, "a", x(400)), assistant(4, "done"), user(5, x(400))];
+  const ids = ["u7", "u8", "u9", "u10", "u11", "u12"];
+  assert.throws(() => compactRequest(history, limits(1), { collapseUnits: ids.map((id) => ({ id, note: "Old." })) }), {
+    message:
+      "collapse units u7, u8, u9, u10, u11 and 1 more: not in the current history; the index they came from is out of date " +
+      `(a compaction, pi's own included, changed the history since). Call action "index" and use its ids. ${RETRY_GUIDANCE}`,
+  });
+});
+
 // Shelley's linter answers a request with all its problems, so one retry
 // can fix them all.
 test("compactRequest reports unit, trim and collapse problems at once", () => {
