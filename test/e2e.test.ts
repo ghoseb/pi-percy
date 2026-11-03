@@ -1,7 +1,8 @@
 // End-to-end: pi-percy in a real pi session with a scripted faux model.
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { ExtensionFactory, SessionEntry } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { isRecordEntry } from "../extensions/percy/branch.ts";
 import { noteText, trimmedText } from "../extensions/percy/messages.ts";
 import { RETRY_GUIDANCE } from "../extensions/percy/validate.ts";
@@ -198,5 +199,48 @@ test("a compaction made just before an abort is applied", async () => {
     assert.equal(a.notifications.filter((n) => n.message.includes("not applied")).length, 0);
   } finally {
     a.dispose();
+  }
+});
+
+/** A tool that calls another tool, as a codemode script does. */
+const scriptTool: ExtensionFactory = (pi) => {
+  pi.registerTool({
+    name: "script",
+    label: "Script",
+    description: "Call a tool from inside a tool",
+    parameters: Type.Object({ tool: Type.String(), args: Type.Any() }),
+    async execute(_id, params, signal, _onUpdate, ctx) {
+      const outcome = await ctx.executeTool(params.tool, params.args, signal ? { signal } : {});
+      const text = outcome.result.content.map((c) => (c.type === "text" ? c.text : "")).join("");
+      return { content: [{ type: "text", text: `${outcome.isError ? "error" : "ok"}: ${text}` }], details: undefined };
+    },
+  });
+};
+
+test("scripts can recall but cannot compact", async () => {
+  const s = await startHarness({ limits: { keepRecentTokens: 1 } }, { extensions: [scriptTool] });
+  try {
+    await s.send("hello");
+    await s.call("echo", { text: "OUT" });
+    const greetingSeq = seqWhere(s, isMessage("assistant", "Well, hi there!"));
+    assert.ok(s.session.getActiveToolNames().includes("compact_in_place"), "still declared to the model");
+
+    await s.call("script", {
+      tool: "compact_in_place",
+      args: { action: "compact", collapse: [{ from: String(greetingSeq), to: String(greetingSeq), note: "GREETED" }] },
+    });
+    const compacted = s.lastToolResult().text;
+    assert.ok(compacted.startsWith("error: "), compacted);
+    assert.ok(!compacted.includes("Compacted:"), compacted);
+    await s.send("next");
+    assert.equal(records(s), 0);
+    const sent = dump(s.requests[s.requests.length - 1]!).join("\n");
+    assert.ok(!sent.includes(noteText(greetingSeq, greetingSeq, "GREETED")), sent);
+
+    await s.call("script", { tool: "recall", args: { ids: [String(greetingSeq)] } });
+    const recalled = s.lastToolResult().text;
+    assert.ok(recalled.startsWith("ok: ") && recalled.includes("Well, hi there!"), recalled);
+  } finally {
+    s.dispose();
   }
 });

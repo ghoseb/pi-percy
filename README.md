@@ -55,6 +55,8 @@ The model can use two tools:
   - `action: "compact"` accepts `trim` and `collapse` operations.
 - `recall` gets original messages by message number, message range, or note ID.
 
+Only the model can call `compact_in_place`. Other tools, for example Pi codemode scripts, cannot call it. pi-percy applies a compaction when the result of its tool call ends the turn, and then hides that call. A call from a script does not have its own tool call, so pi-percy cannot apply it. Scripts can call `recall`.
+
 The index groups a tool call with its outputs. It marks protected rows. It does not show the recent part.
 
 The agent can do these actions:

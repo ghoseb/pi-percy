@@ -116,6 +116,11 @@ export function registerTools(pi: ExtensionAPI, deps: ToolDeps): void {
   pi.registerTool({
     name: COMPACT_TOOL,
     label: "Compact in place",
+    // Only the model may call it. A compaction is applied when its own tool
+    // result ends the turn, and pi-percy hides that call and result afterwards.
+    // A call from another tool, such as a codemode script, has neither: it
+    // would report a compaction that is never applied.
+    exposure: "model-only",
     description: COMPACT_DESCRIPTION,
     promptSnippet: "Selectively compact older conversation context",
     promptGuidelines: COMPACT_PROMPT_GUIDELINES,
