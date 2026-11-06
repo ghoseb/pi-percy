@@ -1,5 +1,9 @@
 # pi-percy
 
+[![NPM Version](https://img.shields.io/npm/v/pi-percy)](https://www.npmjs.com/package/pi-percy)
+[![Node.js Version](https://img.shields.io/node/v/pi-percy)](https://nodejs.org)
+[![License](https://img.shields.io/npm/l/pi-percy)](LICENSE)
+
 pi-percy is an extension for [Pi](https://github.com/earendil-works/pi/tree/main/packages/coding-agent). It lets the agent make its own context smaller before the context window is full. The agent replaces old tool outputs with short pointers and replaces old message ranges with short notes. The session keeps the original messages. With `recall`, the agent can search them and read them again.
 
 ## Terms
