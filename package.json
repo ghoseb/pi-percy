@@ -1,12 +1,32 @@
 {
   "name": "pi-percy",
-  "version": "1.0.0",
-  "private": true,
-  "description": "Shelley-style in-place context compaction for pi",
+  "version": "1.1.0",
+  "description": "Pi extension that lets the agent compact its own context in place: it trims old tool outputs and replaces old messages with short notes, and can search and recall the originals",
   "keywords": [
-    "pi-package"
+    "pi-package",
+    "pi",
+    "pi-extension",
+    "context",
+    "compaction",
+    "llm",
+    "agent"
   ],
+  "license": "MIT",
+  "author": "Baishampayan Ghose <b.ghose@gmail.com>",
+  "homepage": "https://github.com/ghoseb/pi-percy#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ghoseb/pi-percy.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ghoseb/pi-percy/issues"
+  },
   "type": "module",
+  "files": [
+    "extensions/",
+    "README.md",
+    "LICENSE"
+  ],
   "packageManager": "pnpm@10.33.0",
   "engines": {
     "node": ">=22.6.0",
