@@ -347,6 +347,33 @@ These environment variables control the test:
 | `PERCY_PBT_DUMP`    | Adds the session branch to the failure report.                                |
 | `PERCY_PBT_STATS`   | Shows the number of each action in the sequences.                             |
 
+### Release
+
+To make a release, run this command on `main`:
+
+```sh
+pnpm release [patch | minor | major | <x.y.z>]
+```
+
+The command does these steps:
+
+1. It checks that the working tree has no changes and that the branch is `main`.
+2. It runs `pnpm run check`.
+3. It sets the new version in `package.json`.
+4. It writes `CHANGELOG.md` with [git-cliff](https://git-cliff.org) from the conventional commits. `cliff.toml` holds the configuration.
+5. It commits the two files as `chore(release): v<version>` and adds the tag `v<version>`.
+
+If you do not give a version, git-cliff selects the next version from the commits after the last tag. A feature increases the minor version, a fix increases the patch version, and a breaking change increases the major version. Before the first tag, the command uses the version in `package.json`.
+
+To see the version and the new changelog section without a change, add `--dry-run`.
+
+The command does not push or publish. To do these steps, run these commands:
+
+```sh
+git push --follow-tags origin main
+npm publish
+```
+
 ## Credits
 
 pi-percy uses the in-place compaction design from [Shelley](https://github.com/boldsoftware/shelley). For an explanation of the design, read ["Compaction"](https://blog.exe.dev/compaction).
