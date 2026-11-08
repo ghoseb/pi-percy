@@ -59,6 +59,12 @@ test("an idle conversation gets one compaction turn", async () => {
     const request = dump(h.requests[h.requests.length - 1]!).join("\n");
     assert.ok(!request.includes("has been idle"), request);
     assert.ok(request.includes("[Tool output compacted"), request);
+    const compacted = h.toolResults().filter((r) => r.text.startsWith("Compacted:"));
+    assert.deepEqual(
+      compacted.map((r) => r.text.endsWith("(via: idle session nudge)")),
+      [true],
+      JSON.stringify(compacted),
+    );
 
     // Its end does not arm another one.
     await sleep(400);

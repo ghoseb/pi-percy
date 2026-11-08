@@ -11,7 +11,15 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { noteText, onlyText } from "./messages.ts";
 import { hideItems, safeCompactionEvidence } from "./view.ts";
-import { type Compaction, type Edit, type Item, type NudgeDetails, NUDGE_TYPE } from "./types.ts";
+import {
+  COMPACT_REQUEST,
+  type Compaction,
+  type CompactTrigger,
+  type Edit,
+  type Item,
+  type NudgeDetails,
+  NUDGE_TYPE,
+} from "./types.ts";
 
 /** The view of ctx's current branch. */
 export function currentView(ctx: ExtensionContext): BranchView {
@@ -25,6 +33,27 @@ export const RECORD_TYPE = "percy-compaction";
 /** Reports whether e records a compaction. */
 export function isRecordEntry(e: SessionEntry): e is CustomEntry<StoredCompaction> {
   return e.type === "custom" && e.customType === RECORD_TYPE;
+}
+
+/**
+ * What asked for a compaction made now: a nudge since the last user message,
+ * else that message if it came from /percy:compact-in-place. An idle run can
+ * also hold a context nudge; the idle nudge started it. Undefined when
+ * neither asked: the agent compacted on its own or because the user asked in
+ * their own words, which stay visible.
+ */
+export function compactionTrigger(branch: readonly SessionEntry[]): CompactTrigger | undefined {
+  let contextNudge = false;
+  for (let i = branch.length - 1; i >= 0; i--) {
+    const e = branch[i]!;
+    if (isNudgeEntry(e, "idle")) return "idle session nudge";
+    if (isNudgeEntry(e, "context")) contextNudge = true;
+    if (e.type === "message" && e.message.role === "user") {
+      if (contextNudge) return "context nudge";
+      return onlyText(e.message)?.startsWith(COMPACT_REQUEST) ? "user command" : undefined;
+    }
+  }
+  return contextNudge ? "context nudge" : undefined;
 }
 
 /**

@@ -10,6 +10,7 @@ import { itemTokens } from "./rows.ts";
 import type { PercySettings } from "./settings.ts";
 import {
   COMPACT_COMMAND,
+  COMPACT_REQUEST,
   COMPACT_TOOL,
   DEBUG_COMMAND,
   REWIND_COMMAND,
@@ -17,9 +18,6 @@ import {
   TOGGLE_COMMAND,
 } from "./types.ts";
 import { applyCompaction, editsBetween } from "./view.ts";
-
-/** What /percy:compact-in-place asks the agent, as Shelley's Compact in Place button does. */
-export const COMPACT_REQUEST = "Compact your context in place.";
 
 /** What the commands read and change of pi-percy's state. */
 export interface CommandDeps {

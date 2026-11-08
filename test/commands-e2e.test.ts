@@ -4,11 +4,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { SessionEntry, SessionManager } from "@earendil-works/pi-coding-agent";
 import { isNudgeEntry, isRecordEntry } from "../extensions/percy/branch.ts";
-import { COMPACT_REQUEST } from "../extensions/percy/commands.ts";
 import type { IndexEntry } from "../extensions/percy/debug.ts";
 import { noteText } from "../extensions/percy/messages.ts";
 import {
   COMPACT_COMMAND,
+  COMPACT_REQUEST,
   DEBUG_COMMAND,
   REWIND_COMMAND,
   STATUS_COMMAND,
@@ -83,6 +83,39 @@ test("/percy:status reports state without a model request", async () => {
     assert.match(status, /pi-percy: enabled/);
     assert.match(status, /history: ~\d+ tokens/);
     assert.match(status, /idle: armed; fires in ~\d+m/);
+  } finally {
+    h.dispose();
+  }
+});
+
+test("a compaction the command asked for says so", async () => {
+  let greeting = "";
+  const h = await startHarness(
+    { limits: { keepRecentTokens: 1 } },
+    {
+      respond: (messages) => {
+        const last = messages[messages.length - 1];
+        const content = last?.content ?? "";
+        const text =
+          typeof content === "string" ? content : content.map((c) => (c.type === "text" ? c.text : "")).join("");
+        if (last?.role !== "user" || !text.startsWith(COMPACT_REQUEST)) return undefined;
+        return {
+          tool: "compact_in_place",
+          args: { action: "compact", collapse: [{ from: greeting, to: greeting, note: "greeted" }] },
+        };
+      },
+    },
+  );
+  try {
+    await h.send("hello");
+    await h.call("echo", { text: "word ", times: 50 });
+    const branch = h.session.sessionManager.getBranch();
+    greeting = String(branch.findIndex((e) => JSON.stringify(e).includes(GREETING)) + 1);
+    await h.send(`/${COMPACT_COMMAND}`);
+    await until(() => records(h).length === 1 && h.session.isIdle, "the compaction");
+    const compacted = h.toolResults().filter((r) => r.text.startsWith("Compacted:"));
+    assert.equal(compacted.length, 1, JSON.stringify(h.toolResults()));
+    assert.ok(compacted[0]!.text.endsWith("(via: user command)"), compacted[0]!.text);
   } finally {
     h.dispose();
   }

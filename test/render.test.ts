@@ -149,6 +149,21 @@ test("a successful compact result shows its counts and sizes", () => {
     ),
     `Compacted: 2 ranges collapsed, 1 tool output trimmed; ~${n(12000)} → ~${n(3000)} tokens`,
   );
+  // A compaction a nudge or the command asked for says which.
+  assert.equal(
+    plain(
+      renderCompactResult(
+        {
+          content: [{ type: "text", text: `${text} (via: context nudge)` }],
+          details: { ...details, via: "context nudge" },
+        },
+        { expanded: false, isPartial: false },
+        t,
+        false,
+      ).render(200),
+    ),
+    `Compacted: 2 ranges collapsed, 1 tool output trimmed; ~${n(12000)} → ~${n(3000)} tokens (via: context nudge)`,
+  );
   // Recorded before results had details: the text as it is.
   assert.equal(
     plain(

@@ -71,6 +71,42 @@ test("the agent is nudged once at the threshold, with the index", async () => {
   }
 });
 
+test("a compaction the nudge asked for says so", async () => {
+  // The harness hides trailing nudges from the script, so answer from the branch.
+  const harness: { h?: Harness } = {};
+  const h = await startHarness(
+    { limits: { keepRecentTokens: 1 }, nudge: { at: 500, step: 1_000_000 } },
+    {
+      // Answers the nudge by collapsing the greeting its index lists.
+      respond: () => {
+        const last = harness.h?.session.sessionManager.getBranch().at(-1);
+        if (!last || !isNudgeEntry(last, "context")) return undefined;
+        const row = nudgeText(last)
+          .split("\n")
+          .find((l) => l.includes('text "hello"'));
+        if (!row) return "Nothing to compact.";
+        const id = row.split(/\s+/)[0]!;
+        // A reason is ignored when a nudge asked.
+        return {
+          tool: "compact_in_place",
+          args: { action: "compact", collapse: [{ from: id, to: id, note: "h" }], reason: "mine" },
+        };
+      },
+    },
+  );
+  harness.h = h;
+  try {
+    await h.send("hello");
+    await h.send("two");
+    const compacted = h.toolResults().filter((r) => r.text.startsWith("Compacted:"));
+    assert.equal(compacted.length, 1, JSON.stringify(h.toolResults()));
+    // The compaction hid the nudge; its result says the nudge asked for it.
+    assert.ok(compacted[0]!.text.endsWith("(via: context nudge)"), compacted[0]!.text);
+  } finally {
+    h.dispose();
+  }
+});
+
 test("a nudge follows a tool batch within the run", async () => {
   const h = await startHarness({ nudge: { at: 1, step: 1_000_000 } });
   try {

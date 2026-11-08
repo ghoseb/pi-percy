@@ -10,7 +10,7 @@ import {
   truncateHead,
 } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "typebox";
-import { type BranchView, compactionDrafts, currentView } from "./branch.ts";
+import { type BranchView, compactionDrafts, compactionTrigger, currentView } from "./branch.ts";
 import { buildIndex } from "./index-render.ts";
 import { isPlainObject } from "./messages.ts";
 import { originals, renderOriginals, renderSearch, resolveIds, SEARCH_LIMITS, searchOriginals } from "./recall.ts";
@@ -27,6 +27,8 @@ const COMPACT_DESCRIPTION = [
   'Then call with action "compact", giving one or both of trim (tool-output rows) and collapse (message ranges with short notes).',
   "Prefer obsolete outputs, abandoned approaches, and completed tasks that are no longer current; retain only their task, final outcome, decision, and reason.",
   `Originals stay in the session; ${RECALL_TOOL} retrieves them.`,
+  "Compacting hides the nudge that asked for it, so the result ends with what did, such as (via: context nudge).",
+  "When no nudge or compaction command asked, give a short reason; it is ignored otherwise.",
 ].join(" ");
 
 const COMPACT_PROMPT_GUIDELINES = [
@@ -71,6 +73,12 @@ const compactParameters = Type.Object({
       Type.Object({ id: Type.String(), note: Type.String({ description: "what still matters from this safe unit" }) }),
       { description: "compact: safe unit ids from the index, each with a short note" },
     ),
+  ),
+  reason: Type.Optional(
+    Type.String({
+      maxLength: 200,
+      description: "compact: why, when no nudge or compaction command asked for this compaction",
+    }),
   ),
 });
 
@@ -243,14 +251,19 @@ export function registerTools(pi: ExtensionAPI, deps: ToolDeps): void {
         return Promise.resolve({ ...result(err.message, { kind: "rejected", problems: err.problems }), isError: true });
       }
       const { compaction, tokensBefore, tokensAfter } = compacted;
+      const reason = params.reason?.trim();
+      // A nudge or the command outranks the agent's own reason.
+      const via =
+        compactionTrigger(ctx.sessionManager.getBranch()) ?? (reason ? (`agent: ${reason}` as const) : undefined);
       deps.queueCompaction(toolCallId, compactionDrafts(view, compaction, compacted.edits, compacted));
       return Promise.resolve(
-        result(compacted.text, {
+        result(via ? `${compacted.text} (via: ${via})` : compacted.text, {
           kind: "compacted",
           tokensBefore,
           tokensAfter,
           collapsed: compaction.squishes.length,
           trimmed: compaction.trims.length,
+          ...(via ? { via } : {}),
         }),
       );
     },

@@ -179,8 +179,13 @@ After a compaction, Pi uses the compacted context for the next model request. pi
 and completed `compact_in_place` calls from the context.
 These messages have no more use after the compaction.
 
+The result of the call tells what asked for the compaction, because the compaction removes that nudge:
+`(via: context nudge)`, `(via: idle session nudge)`, or `(via: user command)` for `/percy:compact-in-place`.
+If none of these asked, the agent can give a short `reason` (200 characters or less). Then the result ends with `(via: agent: <reason>)`.
+pi-percy ignores the reason when a nudge or the command asked.
+
 pi-percy applies a compaction only when the result of the tool call ends the turn.
-Then it removes that call from the context.
+The call and its result stay in the context until the next compaction removes them.
 
 #### Calls from scripts
 

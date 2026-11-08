@@ -171,7 +171,8 @@ export function renderCompactResult(
     case "compacted": {
       const counts = `${plural(d.collapsed, "range")} collapsed, ${plural(d.trimmed, "tool output")} trimmed`;
       const sizes = `~${d.tokensBefore.toLocaleString()} → ~${d.tokensAfter.toLocaleString()} tokens`;
-      return new TruncatedText(theme.fg("success", `Compacted: ${counts}; ${sizes}`), 0, 0);
+      const via = d.via ? ` (via: ${d.via})` : "";
+      return new TruncatedText(theme.fg("success", `Compacted: ${counts}; ${sizes}${via}`), 0, 0);
     }
     case undefined:
       if (isError) return expandable("Nothing compacted", "warning");

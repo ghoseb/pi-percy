@@ -81,6 +81,8 @@ test("compact_in_place end to end", async () => {
   });
   const done = h.lastToolResult();
   assert.ok(!done.isError && done.text.startsWith("Compacted: 1 collapsed, 1 trimmed"), done.text);
+  // Neither a nudge nor the command asked for it.
+  assert.ok(!done.text.includes("(via:"), done.text);
   const [, tokensBefore, tokensAfter] = /history ~(\d+) -> ~(\d+) tokens/.exec(done.text)!;
   assert.deepEqual(done.details, {
     kind: "compacted",
@@ -175,6 +177,25 @@ ${GREETING}`),
     bad.isError && bad.text.includes("s999.0: no such note") && bad.text.includes("x: not a message"),
     bad.text,
   );
+});
+
+test("a compaction nothing asked for keeps the agent's reason", async () => {
+  const p = await startHarness({ limits: { keepRecentTokens: 1 } });
+  try {
+    await p.send("hello");
+    await p.call("echo", { text: "OUT" });
+    const callSeq = seqWhere(p, isCall("OUT"));
+    // Too long a reason is refused, and nothing is compacted.
+    await p.call("compact_in_place", { action: "compact", trim: [callSeq], reason: "x".repeat(201) });
+    assert.ok(p.lastToolResult().isError, p.lastToolResult().text);
+    assert.equal(records(p), 0);
+    await p.call("compact_in_place", { action: "compact", trim: [callSeq], reason: " finished the echo check " });
+    const done = p.lastToolResult();
+    assert.ok(!done.isError && done.text.endsWith("(via: agent: finished the echo check)"), done.text);
+    assert.equal((done.details as { via?: string }).via, "agent: finished the echo check");
+  } finally {
+    p.dispose();
+  }
 });
 
 test("only one compaction per turn applies", async () => {

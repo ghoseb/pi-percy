@@ -112,13 +112,33 @@ export const DEBUG_COMMAND = "percy:compact-debug";
 export const REWIND_COMMAND = "percy:rewind-compaction";
 export const TOGGLE_COMMAND = "percy:toggle-compaction";
 export const STATUS_COMMAND = "percy:status";
+/** What /percy:compact-in-place asks the agent, as Shelley's Compact in Place button does. */
+export const COMPACT_REQUEST = "Compact your context in place.";
+
+/**
+ * What asked for a compaction. The compaction hides a nudge that asked for
+ * it, so its result says which one did.
+ */
+export type CompactTrigger = "context nudge" | "idle session nudge" | "user command";
+
+/** A compaction's via: its trigger, or the agent's reason when nothing asked. */
+export type CompactVia = CompactTrigger | `agent: ${string}`;
+
 /** customType of context nudges (size and idle), hidden by compacting. */
 export const NUDGE_TYPE = "percy-nudge";
 /** What a compact_in_place result reports, for its card. */
 export type CompactDetails =
   /** An index listing rows the agent can compact. */
   | { kind: "index"; rows: number }
-  | { kind: "compacted"; tokensBefore: number; tokensAfter: number; collapsed: number; trimmed: number }
+  | {
+      kind: "compacted";
+      tokensBefore: number;
+      tokensAfter: number;
+      collapsed: number;
+      trimmed: number;
+      /** What asked for the compaction: a trigger pi-percy found, else the agent's reason. */
+      via?: CompactVia;
+    }
   /** A request with problems: nothing was compacted. */
   | { kind: "rejected"; problems: string[] };
 
