@@ -1,2 +1,4 @@
 PLAN.md
 node_modules/
+.pi/
+.rumdl_cache/
