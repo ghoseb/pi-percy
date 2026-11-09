@@ -2,6 +2,21 @@
 
 All notable changes to pi-percy. Generated from the git history by [git-cliff](https://git-cliff.org).
 
+## [1.1.2] - 2026-11-09
+
+### Features
+
+- **compaction:** Say what asked for each compaction
+
+### Documentation
+
+- **readme:** Add npm version, Node.js and license badges
+- **readme:** Explain when pi-percy is useful and how it keeps the prompt cache valid
+
+### Miscellaneous
+
+- **git:** Ignore non-work folders
+
 ## [1.1.1] - 2026-11-06
 
 ### Features
