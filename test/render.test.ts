@@ -44,6 +44,21 @@ const plain = (lines: string[]) =>
     .filter(Boolean)
     .join("\n");
 
+/** A left click at the top of a card. */
+const LEFT_CLICK = {
+  type: "click" as const,
+  button: "left" as const,
+  x: 1,
+  y: 1,
+  screenX: 1,
+  screenY: 1,
+  width: 200,
+  height: 4,
+  shift: false,
+  alt: false,
+  ctrl: false,
+};
+
 function entry<T>(customType: string, data: T): CustomEntry<T> {
   return { type: "custom", id: "e1", parentId: null, timestamp: new Date(0).toISOString(), customType, data };
 }
@@ -197,22 +212,42 @@ test("a compaction record, like pi's compaction message", () => {
 test("a compaction card expands with a left click, like pi's card", () => {
   const card = renderRecord(entry("percy-compaction", record), false, t);
   card.render(200); // Establish Box's mouse layout before dispatching the click.
-  const result = card.handleMouse?.({
-    type: "click",
-    button: "left",
-    x: 1,
-    y: 1,
-    screenX: 1,
-    screenY: 1,
-    width: 200,
-    height: 4,
-    shift: false,
-    alt: false,
-    ctrl: false,
-  });
+  const result = card.handleMouse?.(LEFT_CLICK);
   assert.equal(result?.handled, true);
   assert.match(plain(card.render(200)), new RegExp(`Compacted from ${n(120_000)} tokens`));
   assert.match(plain(card.render(200)), /Context now uses about/);
+});
+
+test("an index card expands with a left click, like pi's card", () => {
+  const card = renderIndex(entry("percy-index", { index: "## Index\n\nrows", rows: 3 }), false, t);
+  assert.doesNotMatch(plain(card.render(200)), /rows$/m);
+  const click = () => card.handleMouse?.(LEFT_CLICK);
+  assert.equal(click()?.handled, true);
+  assert.match(plain(card.render(200)), /^rows$/m);
+  assert.equal(click()?.handled, true);
+  assert.doesNotMatch(plain(card.render(200)), /^rows$/m);
+});
+
+test("a nudge card expands with a left click, like pi's card", () => {
+  const nudge = {
+    role: "custom" as const,
+    customType: NUDGE_TYPE,
+    content: [
+      { type: "text" as const, text: "Context is 210k." },
+      { type: "text" as const, text: "## Index\n\nrows" },
+    ],
+    display: true,
+    details: { tokens: 205_000 },
+    timestamp: 0,
+  };
+  const card = renderNudge(nudge, false, 1, t);
+  assert.doesNotMatch(plain(card.render(200)), /Index/);
+  const click = () => card.handleMouse?.(LEFT_CLICK);
+  assert.equal(click()?.handled, true);
+  assert.match(plain(card.render(200)), /Index/);
+  // A second click collapses it again.
+  assert.equal(click()?.handled, true);
+  assert.doesNotMatch(plain(card.render(200)), /Index/);
 });
 
 test("nudges show their first line, and the index on expand", () => {

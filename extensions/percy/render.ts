@@ -52,8 +52,8 @@ function collapsed(theme: Theme, summary: string): Text {
 
 /**
  * Pi's built-in compaction card expands with both Ctrl+O and a left click.
- * Entry renderers receive the Ctrl+O state from pi; retain a local state too
- * so this card has the same mouse affordance.
+ * Entry and message renderers receive the Ctrl+O state from pi; retain a
+ * local state too so pi-percy's cards have the same mouse affordance.
  */
 function expandableFrame(
   theme: Theme,
@@ -208,8 +208,6 @@ export function renderNudge(
   outputPad: number,
   theme: Theme,
 ): Component {
-  const text = contentText(message.content, "\n\n");
-  if (expanded) return frame(theme, "context", outputPad, markdown(theme, text));
   const details = message.details;
   let summary: string;
   if (details?.idle) {
@@ -219,15 +217,16 @@ export function renderNudge(
     const size = details?.tokens === undefined ? "Context nudge" : `Context is ${roundedK(details.tokens)}k`;
     summary = `${size}: sent the agent the compaction index`;
   }
-  return frame(theme, "context", outputPad, collapsed(theme, summary));
+  return expandableFrame(theme, "context", outputPad, expanded, summary, () =>
+    markdown(theme, contentText(message.content, "\n\n")),
+  );
 }
 
 /** The index shown by /percy:compact-debug. */
 export function renderIndex(entry: CustomEntry<IndexEntry>, expanded: boolean, theme: Theme): Component {
   const index = entry.data?.index ?? "";
-  if (expanded) return frame(theme, "compaction index", 1, markdown(theme, index));
   const rows = entry.data?.rows;
   const summary =
     rows === undefined ? "Index" : rows > 0 ? `${plural(rows, "row")} to compact` : "Nothing to compact yet";
-  return frame(theme, "compaction index", 1, collapsed(theme, summary));
+  return expandableFrame(theme, "compaction index", 1, expanded, summary, () => markdown(theme, index));
 }
