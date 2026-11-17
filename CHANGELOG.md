@@ -2,6 +2,12 @@
 
 All notable changes to pi-percy. Generated from the git history by [git-cliff](https://git-cliff.org).
 
+## [1.2.0] - 2026-11-17
+
+### Features
+
+- **render:** Expand the nudge and index cards with a click
+
 ## [1.1.2] - 2026-11-09
 
 ### Features
