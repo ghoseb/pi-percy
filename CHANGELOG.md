@@ -2,6 +2,16 @@
 
 All notable changes to pi-percy. Generated from the git history by [git-cliff](https://git-cliff.org).
 
+## [1.4.0] - 2026-11-19
+
+### Features
+
+- **compaction:** Merge very old notes with what replaced them
+
+### Bug fixes
+
+- **compaction:** Count merged work once and offer merges first
+
 ## [1.3.0] - 2026-11-19
 
 ### Features

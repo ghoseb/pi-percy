@@ -1,6 +1,6 @@
 {
   "name": "pi-percy",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Pi extension that lets the agent compact its own context in place: it trims old tool outputs and replaces old messages with short notes, and can search and recall the originals",
   "keywords": [
     "pi-package",
