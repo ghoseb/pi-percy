@@ -10,6 +10,7 @@ import {
   emptyCompaction,
   type Item,
   type Limits,
+  MAX_SEE_ALSO,
   type Trim,
 } from "./types.ts";
 import {
@@ -89,8 +90,29 @@ function suggestRanges(rows: readonly Row[], alone: readonly boolean[], i: numbe
   return ranges.join(", ");
 }
 
-/** A collapse to check: a range the agent gave, or the range of a unit it selected. */
-type CollapseRequest = Collapse & { unit?: string };
+/**
+ * A collapse to check: a range the agent gave, or the range of a unit it
+ * selected. A merge may cover notes and user messages; its seeAlso lists ids
+ * of later notes or messages.
+ */
+type CollapseRequest = Collapse & { unit?: string; merge?: boolean; seeAlso?: readonly string[] };
+
+/**
+ * The problem with a merge note pointing to id, or undefined if id names a
+ * note in context or a message after the merged range ending at message to.
+ */
+function seeAlsoProblem(items: readonly Item[], to: number, id: string): string | undefined {
+  const last = Math.max(...items.map((it) => it.to));
+  if (/^s\d+\.\d+$/.test(id)) {
+    const note = items.find((it) => it.note?.id === id);
+    if (!note) return `seeAlso ${id}: no such note in context`;
+    return note.from > to ? undefined : `seeAlso ${id}: not after the merged messages; give later notes or messages`;
+  }
+  if (!/^\d+$/.test(id)) return `seeAlso ${id}: not a note id (s<n>.<i>) or a message number`;
+  const n = Number(id);
+  if (n > last) return `seeAlso ${id}: no such message`;
+  return n > to ? undefined : `seeAlso ${id}: not after the merged messages; give later notes or messages`;
+}
 
 /**
  * Turns the agent's request into a record, validating it against the
@@ -169,9 +191,10 @@ export function buildCompaction(
       problem(`covers ${fixed.from}, which cannot be compacted (user bash runs and summaries stay as they are)`);
       continue;
     }
-    // A row that can only be collapsed on its own may not share a range.
+    // A row that can only be collapsed on its own may not share a range,
+    // except in a merge of old notes.
     const k = alone.slice(i, j + 1).indexOf(true);
-    if (k >= 0 && j > i) {
+    if (k >= 0 && j > i && !col.merge) {
       const r = suggestRanges(rows, alone, i, j);
       const instead = r ? `collapse e.g. ${r} instead` : "collapse each of those rows on its own";
       problem(`covers ${rowId(rows[i + k]!)}, which can only be collapsed on its own; ${instead}`);
@@ -196,7 +219,26 @@ export function buildCompaction(
       continue;
     }
     const last = rows[j]![rows[j]!.length - 1]!;
-    c.squishes.push({ from: rows[i]![0]!.from, to: last.to, summary: col.note });
+    const seeAlso = col.seeAlso ?? [];
+    if (seeAlso.length > 0 && !col.merge) {
+      problem("seeAlso is only for merges of old notes (m units)");
+      continue;
+    }
+    if (seeAlso.length > MAX_SEE_ALSO) {
+      problem(`seeAlso lists ${seeAlso.length} ids; give at most ${MAX_SEE_ALSO}, the ones that matter most`);
+      continue;
+    }
+    const seeAlsoProblems = seeAlso.flatMap((id) => seeAlsoProblem(items, last.to, id) ?? []);
+    if (seeAlsoProblems.length > 0) {
+      for (const p of seeAlsoProblems) problem(p);
+      continue;
+    }
+    c.squishes.push({
+      from: rows[i]![0]!.from,
+      to: last.to,
+      summary: col.note,
+      ...(seeAlso.length === 0 ? {} : { seeAlso: [...seeAlso] }),
+    });
   }
 
   if (found.length > 0) throw new CompactionProblems(found);
@@ -233,11 +275,11 @@ export function compactRequest(
 ): CompactResult {
   const unitSelections = input.collapseUnits ?? [];
   const available = compactionUnits(history, limits, systemBoundaries);
-  const units = new Map(available.units.map((unit) => [unit.id, unit]));
+  const units = new Map([...available.units, ...available.merges].map((unit) => [unit.id, unit]));
   const unitProblems: string[] = [];
   const seenUnits = new Set<string>();
   const unknownUnits: string[] = [];
-  const selected = unitSelections.flatMap(({ id, note }): CollapseRequest[] => {
+  const selected = unitSelections.flatMap(({ id, note, seeAlso }): CollapseRequest[] => {
     if (seenUnits.has(id)) {
       unitProblems.push(`collapse unit ${id}: listed twice`);
       return [];
@@ -248,7 +290,10 @@ export function compactRequest(
       unknownUnits.push(id);
       return [];
     }
-    return [{ from: unit.from, to: unit.to, note, unit: id }];
+    const merge = unit.kind === "merge";
+    return [
+      { from: unit.from, to: unit.to, note, unit: id, ...(merge ? { merge } : {}), ...(seeAlso ? { seeAlso } : {}) },
+    ];
   });
   if (unknownUnits.length === 1) {
     unitProblems.push(`collapse unit ${unknownUnits[0]}: unknown id; use ids from the index`);
@@ -279,7 +324,8 @@ export function compactRequest(
   const tokensAfter = itemTokens(after);
   const tokensSaved = tokensBefore - tokensAfter;
   // The units the index would list.
-  const remainingUnits = compactionUnits(after, limits, systemBoundaries).units.filter(worthListing).length;
+  const left = compactionUnits(after, limits, systemBoundaries);
+  const remainingUnits = left.units.filter(worthListing).length + left.merges.length;
   return {
     compaction,
     edits: editsBetween(history, after),

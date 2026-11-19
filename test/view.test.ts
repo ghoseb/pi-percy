@@ -41,7 +41,7 @@ test("applyCompaction squishes, trims, and validates ranges", () => {
   const got = applyCompaction(base, squish(2, 4, "ran bash"), 7);
   assert.equal(spans(got), "1-1 2-4 6-6");
   const note = got[1]!;
-  assert.deepEqual(note.note, { id: "s7.0", summary: "ran bash" });
+  assert.deepEqual(note.note, { id: "s7.0", summary: "ran bash", age: 0 });
   // The first message of the range carries the note, keeping its role.
   assert.equal(note.message.role, "assistant");
   assert.equal(note.message.timestamp, 2);

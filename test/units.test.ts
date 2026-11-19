@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { compactableTokens, compactionUnits } from "../extensions/percy/units.ts";
 import { DEFAULT_LIMITS, type Item } from "../extensions/percy/types.ts";
-import { assistant, call, output, user, x } from "./fixtures.ts";
+import { assistant, call, oldHistory, output, user, x } from "./fixtures.ts";
 
 const limits = (keepRecentTokens: number) => ({ ...DEFAULT_LIMITS, keepRecentTokens });
 
@@ -80,4 +80,35 @@ test("compactable tokens count work units only", () => {
   // A row before a system message stays as it is.
   assert.equal(compactableTokens(items, limits(1), [3]), 500);
   assert.equal(compactableTokens([assistant(1, "only recent")], limits(1)), 0);
+});
+
+test("merges join old notes and the user messages between them", () => {
+  const { merges } = compactionUnits(oldHistory(), limits(1));
+  // The young note s30.0 ends the first run; the second run holds only one
+  // old note, so it is not offered. User message 10 follows the last note of
+  // the first run, so it stays out.
+  assert.deepEqual(
+    merges.map((m) => [m.id, m.from, m.to, m.kind, m.notes, m.users, m.others]),
+    [["m1", "1", "s10.1", "merge", 2, 2, 0]],
+  );
+  // Other work left between old notes joins the merge; a row after the last
+  // note does not.
+  const history = oldHistory();
+  history.splice(3, 0, assistant(100, "a reply"));
+  history.splice(5, 0, assistant(101, "a later reply"));
+  assert.deepEqual(
+    compactionUnits(history, limits(1)).merges.map((m) => [m.from, m.to, m.notes, m.users, m.others]),
+    [["1", "s10.1", 2, 2, 1]],
+  );
+  assert.deepEqual(compactionUnits(oldHistory(), { ...limits(1), mergeAfterCompactions: 0 }).merges, []);
+  // Merges keep to the collapse budget.
+  const small = { ...limits(1), maxCollapseTokens: 30 };
+  assert.ok(compactionUnits(oldHistory(), small).merges.every((m) => m.tokens <= 30));
+});
+
+test("compactable tokens count half of what merges cover", () => {
+  const history = oldHistory();
+  const merged = compactionUnits(history, limits(1)).merges[0]!.tokens;
+  const without = compactableTokens(history, { ...limits(1), mergeAfterCompactions: 0 });
+  assert.equal(compactableTokens(history, limits(1)), without + Math.floor(merged / 2));
 });

@@ -1,5 +1,6 @@
 // Builders of view items in pi's message shapes, numbered like the session
 // branch numbers them.
+import { noteText } from "../extensions/percy/messages.ts";
 import { COMPACT_TOOL, type AgentMessage, type Item, NUDGE_TYPE } from "../extensions/percy/types.ts";
 
 type Assistant = Extract<AgentMessage, { role: "assistant" }>;
@@ -12,6 +13,35 @@ function item(seq: number, message: AgentMessage): Item {
 
 export function user(seq: number, text: string): Item {
   return item(seq, { role: "user", content: [{ type: "text", text }], timestamp: seq });
+}
+
+/**
+ * A note from an earlier compaction, written age compactions ago, covering
+ * messages from-to; its carrier keeps the role of a user message.
+ */
+export function note(from: number, to: number, id: string, summary: string, age = 0): Item {
+  return {
+    from,
+    to,
+    note: { id, summary, age },
+    message: { role: "user", content: [{ type: "text", text: noteText(from, to, summary) }], timestamp: from },
+  };
+}
+
+/** Old history as long sessions leave it: user messages and the notes of the work they asked for. */
+export function oldHistory(): Item[] {
+  return [
+    user(1, "build the parser"),
+    note(2, 5, "s10.0", "Built the parser.", 12),
+    user(6, "add tests"),
+    note(7, 9, "s10.1", "Added parser tests.", 12),
+    user(10, "fix the lexer"),
+    note(11, 12, "s30.0", "Fixed the lexer.", 3),
+    user(13, "rename it"),
+    note(14, 15, "s10.2", "Renamed the parser.", 12),
+    user(16, "now the docs"),
+    assistant(17, "the recent part"),
+  ];
 }
 
 export function assistantMessage(seq: number, ...content: Block[]): Item {

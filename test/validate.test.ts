@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { trimmedText } from "../extensions/percy/messages.ts";
+import { noteText, trimmedText } from "../extensions/percy/messages.ts";
 import { recentStart } from "../extensions/percy/rows.ts";
 import { type CompactInput, type Collapse, DEFAULT_LIMITS, type Item, type Limits } from "../extensions/percy/types.ts";
 import { collapsesAlone } from "../extensions/percy/units.ts";
 import { buildCompaction, compactRequest, RETRY_GUIDANCE } from "../extensions/percy/validate.ts";
 import { applyCompaction } from "../extensions/percy/view.ts";
-import { assistant, call, compactCall, custom, nudge, output, spans, textOf, user, x } from "./fixtures.ts";
+import { assistant, call, compactCall, custom, nudge, oldHistory, output, spans, textOf, user, x } from "./fixtures.ts";
 
 const limits = (keepRecentTokens: number): Limits => ({ ...DEFAULT_LIMITS, keepRecentTokens });
 const col = (from: string, to: string, note = "n"): Collapse => ({ from, to, note });
@@ -288,7 +288,7 @@ test("collapsesAlone: user messages, notes and summaries", () => {
   };
   const cases: [string, Item, boolean][] = [
     ["user", user(1, "fix it"), true],
-    ["note", { ...user(1, "x"), note: { id: "s5.0", summary: "earlier" } }, true],
+    ["note", { ...user(1, "x"), note: { id: "s5.0", summary: "earlier", age: 0 } }, true],
     ["compaction summary", summary("compactionSummary"), true],
     ["branch summary", summary("branchSummary"), true],
     ["assistant", assistant(1, "done"), false],
@@ -336,4 +336,46 @@ test("compactRequest hides the evidence of compacting", () => {
     /^Compacted: 1 collapsed, 0 trimmed; history ~\d+ -> ~\d+ tokens \(saved ~\d+\)\. \d+ safe collapse units remain\.$/,
   );
   assert.ok(r.tokensAfter < r.tokensBefore);
+});
+
+test("compactRequest merges old notes with what replaced them", () => {
+  const history = oldHistory();
+  const result = compactRequest(history, limits(1), {
+    collapseUnits: [{ id: "m1", note: "Built and tested the parser.", seeAlso: ["s30.0", "13"] }],
+  });
+  assert.deepEqual(result.compaction.squishes, [
+    { from: 1, to: 9, summary: "Built and tested the parser.", seeAlso: ["s30.0", "13"] },
+  ]);
+  const merged = applyCompaction(history, result.compaction).find((it) => it.from === 1)!;
+  assert.equal(textOf(merged.message), noteText(1, 9, "Built and tested the parser.", ["s30.0", "13"]));
+  assert.ok(textOf(merged.message).endsWith("\nSee also: s30.0, 13."));
+});
+
+test("compactRequest checks what a merge points to", () => {
+  const history = oldHistory();
+  const merge = (seeAlso: string[]) => () =>
+    compactRequest(history, limits(1), { collapseUnits: [{ id: "m1", note: "Parser.", seeAlso }] });
+  const cases: [string[], string][] = [
+    [["s10.0"], "seeAlso s10.0: not after the merged messages"],
+    [["s99.9"], "seeAlso s99.9: no such note in context"],
+    [["5"], "seeAlso 5: not after the merged messages"],
+    [["99"], "seeAlso 99: no such message"],
+    [["later"], "seeAlso later: not a note id (s<n>.<i>) or a message number"],
+    [Array.from({ length: 10 }, () => "13"), "seeAlso lists 10 ids; give at most 9"],
+  ];
+  for (const [seeAlso, want] of cases) {
+    assert.throws(merge(seeAlso), (err: Error) => err.message.includes(want), want);
+  }
+  // seeAlso belongs to merges, and a raw range still may not span notes.
+  assert.throws(
+    () =>
+      compactRequest([...history.slice(0, 9), assistant(17, x(400)), assistant(18, "recent")], limits(1), {
+        collapseUnits: [{ id: "u1", note: "Lexer.", seeAlso: ["17"] }],
+      }),
+    (err: Error) => err.message.includes("seeAlso is only for merges of old notes"),
+  );
+  assert.throws(
+    () => compactRequest(history, limits(1), { collapse: [{ from: "1", to: "s10.1", note: "Parser." }] }),
+    (err: Error) => err.message.includes("can only be collapsed on its own"),
+  );
 });

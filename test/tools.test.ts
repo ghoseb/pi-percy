@@ -8,13 +8,19 @@ test("stringIds: ids sent as numbers become strings", () => {
       action: "compact",
       trim: [3, "4"],
       collapse: [{ from: 1, to: "2", note: "n" }],
-      collapseUnits: [{ id: 5, note: "u" }],
+      collapseUnits: [
+        { id: 5, note: "u" },
+        { id: "m1", note: "m", seeAlso: [40, "s30.1"] },
+      ],
     }),
     {
       action: "compact",
       trim: ["3", "4"],
       collapse: [{ from: "1", to: "2", note: "n" }],
-      collapseUnits: [{ id: "5", note: "u" }],
+      collapseUnits: [
+        { id: "5", note: "u" },
+        { id: "m1", note: "m", seeAlso: ["40", "s30.1"] },
+      ],
     },
   );
   assert.deepEqual(stringIds({ ids: [12, "12-20", "s30.1"] }), { ids: ["12", "12-20", "s30.1"] });

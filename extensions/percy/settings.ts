@@ -25,6 +25,7 @@ const KEYS = {
   nudgeMinSavingsTokens: (s: PercySettings, n: number) => (s.nudge = { ...s.nudge, minSavings: n }),
   keepRecentTokens: (s: PercySettings, n: number) => (s.limits = { ...s.limits, keepRecentTokens: n }),
   maxCollapseTokens: (s: PercySettings, n: number) => (s.limits = { ...s.limits, maxCollapseTokens: n }),
+  mergeAfterCompactions: (s: PercySettings, n: number) => (s.limits = { ...s.limits, mergeAfterCompactions: n }),
   idleMinutes: (s: PercySettings, n: number) => (s.idle = { ...s.idle, minutes: n }),
   idleMinSavingsTokens: (s: PercySettings, n: number) => (s.idle = { ...s.idle, minSavings: n }),
 } as const;

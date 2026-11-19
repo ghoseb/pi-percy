@@ -16,7 +16,7 @@ import { isPlainObject } from "./messages.ts";
 import { originals, renderOriginals, renderSearch, resolveIds, SEARCH_LIMITS, searchOriginals } from "./recall.ts";
 import { renderCompactCall, renderCompactResult } from "./render.ts";
 import type { PercySettings } from "./settings.ts";
-import { COMPACT_TOOL, type CompactDetails, RECALL_TOOL } from "./types.ts";
+import { COMPACT_TOOL, type CompactDetails, MAX_SEE_ALSO, RECALL_TOOL } from "./types.ts";
 import { CompactionProblems, compactRequest } from "./validate.ts";
 
 const COMPACT_DESCRIPTION = [
@@ -26,6 +26,7 @@ const COMPACT_DESCRIPTION = [
   '(Right after a "Context is Nk." nudge, which carries the index, you can skip it.)',
   'Then call with action "compact", giving one or both of trim (tool-output rows) and collapse (message ranges with short notes).',
   "Prefer obsolete outputs, abandoned approaches, and completed tasks that are no longer current; retain only their task, final outcome, decision, and reason.",
+  "The index may also offer merges (m units) of very old notes and the user messages between them: merge them into one note that keeps only what is still true, and list later notes or messages that replaced or add to it in seeAlso.",
   `Originals stay in the session; ${RECALL_TOOL} retrieves them.`,
   "Compacting hides the nudge that asked for it, so the result ends with what did, such as (via: context nudge).",
   "When no nudge or compaction command asked, give a short reason; it is ignored otherwise.",
@@ -70,7 +71,16 @@ const compactParameters = Type.Object({
   ),
   collapseUnits: Type.Optional(
     Type.Array(
-      Type.Object({ id: Type.String(), note: Type.String({ description: "what still matters from this safe unit" }) }),
+      Type.Object({
+        id: Type.String(),
+        note: Type.String({ description: "what still matters from this safe unit" }),
+        seeAlso: Type.Optional(
+          Type.Array(Type.String(), {
+            maxItems: MAX_SEE_ALSO,
+            description: `merge (m) units only: up to ${MAX_SEE_ALSO} ids of later notes or messages that replaced part of it or add to it`,
+          }),
+        ),
+      }),
       { description: "compact: safe unit ids from the index, each with a short note" },
     ),
   ),
@@ -158,9 +168,11 @@ export function stringIds(args: unknown): unknown {
   for (const [name, fields] of Object.entries(ID_FIELDS)) {
     const list = args[name];
     if (!Array.isArray(list)) continue;
-    out[name] = list.map((v: unknown) =>
-      isPlainObject(v) ? { ...v, ...Object.fromEntries(fields.map((f) => [f, str(v[f])])) } : v,
-    );
+    out[name] = list.map((v: unknown) => {
+      if (!isPlainObject(v)) return v;
+      const seeAlso = Array.isArray(v["seeAlso"]) ? { seeAlso: v["seeAlso"].map(str) } : {};
+      return { ...v, ...Object.fromEntries(fields.map((f) => [f, str(v[f])])), ...seeAlso };
+    });
   }
   return out;
 }

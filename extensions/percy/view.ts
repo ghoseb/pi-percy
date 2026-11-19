@@ -48,8 +48,8 @@ export function applyCompaction(items: readonly Item[], c: Compaction, recordSeq
     out.splice(i, j - i + 1, {
       from: s.from,
       to: s.to,
-      note: { id: `s${recordSeq}.${n}`, summary: s.summary },
-      message: withText(out[i]!.message, noteText(s.from, s.to, s.summary)),
+      note: { id: `s${recordSeq}.${n}`, summary: s.summary, age: 0 },
+      message: withText(out[i]!.message, noteText(s.from, s.to, s.summary, s.seeAlso)),
     });
   });
   return hideItems(out, c.hiddenSeqs, c.hiddenToolCallIds);

@@ -12,10 +12,14 @@ export interface CompactionUnit {
   from: string;
   to: string;
   tokens: number;
-  /** One row, or several. */
-  kind: "single" | "range";
+  /** One row, several, or a merge of old notes and the user messages between them. */
+  kind: "single" | "range" | "merge";
   /** A row that collapses only on its own: a user message, a note, or a summary. */
   alone: boolean;
+  /** For a merge: how many notes, user messages, and other rows it covers. */
+  notes?: number;
+  users?: number;
+  others?: number;
 }
 
 export interface ProtectedRow {
@@ -25,6 +29,8 @@ export interface ProtectedRow {
 
 export interface CompactionUnits {
   units: CompactionUnit[];
+  /** Merges of very old notes (ids m1, m2, ...). */
+  merges: CompactionUnit[];
   protectedRows: ProtectedRow[];
 }
 
@@ -152,21 +158,96 @@ export function compactionUnits(
     while (i < recentRow && !alone[i] && fixedReason(rows[i]!, systemBoundaries) === undefined) i++;
     appendChunks(rows, start, i - 1, limits.maxCollapseTokens, add, protect);
   }
-  return { units, protectedRows };
+  return { units, merges: mergeUnits(rows, recentRow, limits, systemBoundaries), protectedRows };
+}
+
+/**
+ * What a row is to a merge: a note written at least
+ * limits.mergeAfterCompactions compactions ago, a user message, other work
+ * left between notes, or none of these (a younger note, a summary, a row that
+ * cannot be compacted, a call or output split from its other half).
+ */
+function mergeRole(
+  row: Row,
+  limits: Limits,
+  systemBoundaries: readonly number[],
+): "note" | "user" | "other" | undefined {
+  if (fixedReason(row, systemBoundaries) !== undefined || orphanOutput(row) || orphanCall(row)) return undefined;
+  const it = row[0]!;
+  if (it.note) {
+    const old = limits.mergeAfterCompactions > 0 && it.note.age >= limits.mergeAfterCompactions;
+    return old ? "note" : undefined;
+  }
+  if (row.length === 1 && it.message.role === "user") return "user";
+  return collapsesAlone(it) ? undefined : "other";
+}
+
+/**
+ * The merges history offers: runs of very old notes and the user messages and
+ * other work between them, each within the collapse budget. Rows between two
+ * old notes are older still. A merge holds at least two notes and ends with
+ * one; rows after the last note may belong to later work, so they stay.
+ */
+function mergeUnits(
+  rows: readonly Row[],
+  recentRow: number,
+  limits: Limits,
+  systemBoundaries: readonly number[],
+): CompactionUnit[] {
+  const merges: CompactionUnit[] = [];
+  const roles = rows.slice(0, recentRow).map((row) => mergeRole(row, limits, systemBoundaries));
+  const add = (from: number, to: number) => {
+    let end = to;
+    while (end >= from && roles[end] !== "note") end--;
+    const count = (role: string) => roles.slice(from, end + 1).filter((r) => r === role).length;
+    const notes = count("note");
+    if (notes < 2) return;
+    merges.push({
+      id: `m${merges.length + 1}`,
+      from: rowId(rows[from]!),
+      to: rowId(rows[end]!),
+      tokens: itemTokens(rows.slice(from, end + 1).flat()),
+      kind: "merge",
+      alone: false,
+      notes,
+      users: count("user"),
+      others: count("other"),
+    });
+  };
+  for (let i = 0; i < roles.length;) {
+    if (roles[i] === undefined) {
+      i++;
+      continue;
+    }
+    let start = i;
+    let tokens = 0;
+    for (; i < roles.length && roles[i] !== undefined; i++) {
+      const next = itemTokens(rows[i]!);
+      if (i > start && tokens + next > limits.maxCollapseTokens) {
+        add(start, i - 1);
+        start = i;
+        tokens = 0;
+      }
+      tokens += next;
+    }
+    add(start, i - 1);
+  }
+  return merges;
 }
 
 /**
  * Roughly what compacting history could save now: the tokens of its units of
- * ordinary work. Rows that collapse only on their own (user messages, notes,
- * summaries) are left out, however large: the agent is told to keep them, and
- * a new note would save little of a small one.
+ * ordinary work, and half those of its merges, as a merged note keeps more.
+ * Rows that collapse only on their own (user messages, notes, summaries) are
+ * left out, however large: the agent is told to keep them, and a new note
+ * would save little of a small one.
  */
 export function compactableTokens(
   history: readonly Item[],
   limits: Limits,
   systemBoundaries: readonly number[] = [],
 ): number {
-  return compactionUnits(history, limits, systemBoundaries)
-    .units.filter((u) => !u.alone)
-    .reduce((n, u) => n + u.tokens, 0);
+  const { units, merges } = compactionUnits(history, limits, systemBoundaries);
+  const work = units.filter((u) => !u.alone).reduce((n, u) => n + u.tokens, 0);
+  return work + Math.floor(merges.reduce((n, u) => n + u.tokens, 0) / 2);
 }

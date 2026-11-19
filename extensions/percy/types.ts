@@ -21,6 +21,8 @@ export interface Note {
   /** "s<record number>.<squish index>" */
   id: string;
   summary: string;
+  /** How many compactions came after the one that wrote this note. */
+  age: number;
 }
 
 export interface Item {
@@ -54,6 +56,8 @@ export interface Squish {
   from: number;
   to: number;
   summary: string;
+  /** Ids of later notes or messages the note points to (set by merges). */
+  seeAlso?: string[];
 }
 
 /** Replaces the content of the tool result in message seq with a pointer. */
@@ -81,9 +85,18 @@ export interface Limits {
   keepRecentTokens: number;
   /** Most history one collapse may cover, unless it is a single row. */
   maxCollapseTokens: number;
+  /**
+   * A note may be merged with other old notes once this many compactions came
+   * after it; 0 turns merging off.
+   */
+  mergeAfterCompactions: number;
 }
 
-export const DEFAULT_LIMITS: Limits = { keepRecentTokens: 20_000, maxCollapseTokens: 20_000 };
+export const DEFAULT_LIMITS: Limits = {
+  keepRecentTokens: 20_000,
+  maxCollapseTokens: 20_000,
+  mergeAfterCompactions: 10,
+};
 
 /** A collapse as the agent asks for it, by index ids. */
 export interface Collapse {
@@ -93,9 +106,14 @@ export interface Collapse {
 }
 
 /** A safe collapse unit from the current compaction index. */
+/** Most ids a merged note may point to in seeAlso. */
+export const MAX_SEE_ALSO = 9;
+
 export interface UnitCollapse {
   id: string;
   note: string;
+  /** For a merge: ids of later notes or messages that replaced part of it or add to it. */
+  seeAlso?: string[];
 }
 
 /** The compact action's input, ids already normalized to strings. */

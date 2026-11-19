@@ -15,6 +15,7 @@ test("applySettings maps keys and reports what it cannot use", () => {
       nudgeMinSavingsTokens: 10_000,
       keepRecentTokens: 0,
       maxCollapseTokens: 10_000,
+      mergeAfterCompactions: 0,
       idleMinutes: 0,
       idleMinSavingsTokens: 40_000,
     },
@@ -22,7 +23,7 @@ test("applySettings maps keys and reports what it cannot use", () => {
   );
   assert.deepEqual(problems, []);
   assert.deepEqual(settings, {
-    limits: { keepRecentTokens: 0, maxCollapseTokens: 10_000 },
+    limits: { keepRecentTokens: 0, maxCollapseTokens: 10_000, mergeAfterCompactions: 0 },
     nudge: { at: 150_000, step: 25_000, minSavings: 10_000 },
     idle: { minutes: 0, minSavings: 40_000 },
   });

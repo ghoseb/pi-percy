@@ -2,7 +2,7 @@
 // and compactions committed the way pi does at a turn boundary.
 import { type SessionBoundaryDraft, SessionManager } from "@earendil-works/pi-coding-agent";
 import { branchView, compactionDrafts } from "../extensions/percy/branch.ts";
-import { DEFAULT_LIMITS, type Item } from "../extensions/percy/types.ts";
+import { DEFAULT_LIMITS, type Item, type Limits } from "../extensions/percy/types.ts";
 import { compactRequest } from "../extensions/percy/validate.ts";
 
 export type Appendable = Parameters<SessionManager["appendMessage"]>[0];
@@ -29,8 +29,8 @@ export function commit(sm: SessionManager, drafts: SessionBoundaryDraft[]) {
 }
 
 /** Compacts sm's current view with input and commits it. */
-export function compact(sm: SessionManager, input: Parameters<typeof compactRequest>[2]) {
+export function compact(sm: SessionManager, input: Parameters<typeof compactRequest>[2], within: Limits = limits) {
   const v = view(sm);
-  const r = compactRequest(v.items, limits, input);
+  const r = compactRequest(v.items, within, input);
   commit(sm, compactionDrafts(v, r.compaction, r.edits, r));
 }

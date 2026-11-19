@@ -66,13 +66,13 @@ test("a committed compaction shows as notes and trimmed outputs", () => {
   const v = view(sm);
   // Entries 7 (record) and 8-9 (edits) add no messages.
   assert.equal(spans(v.items), "1-1 2-2 3-3 4-4 5-5 6-6");
-  assert.deepEqual(v.items[1]!.note, { id: "s7.0", summary: "planned" });
+  assert.deepEqual(v.items[1]!.note, { id: "s7.0", summary: "planned", age: 0 });
   assert.equal(textOf(v.items[1]!.message), noteText(2, 2, "planned"));
   assert.equal(textOf(v.items[3]!.message), trimmedText(4));
 
   // A note may be collapsed again on its own: the carrier gets the new note.
   compact(sm, { collapse: [{ from: "s7.0", to: "s7.0", note: "p" }] });
-  assert.deepEqual(view(sm).items[1]!.note, { id: "s10.0", summary: "p" });
+  assert.deepEqual(view(sm).items[1]!.note, { id: "s10.0", summary: "p", age: 0 });
 
   // A collapse enclosing a note (as /percy:compact-debug may record) omits the
   // note's carrier along with the rest of the range.
@@ -87,7 +87,7 @@ test("a committed compaction shows as notes and trimmed outputs", () => {
   );
   const again = view(sm);
   assert.equal(spans(again.items), "1-1 2-5 6-6");
-  assert.deepEqual(again.items[1]!.note, { id: "s12.0", summary: "built it" });
+  assert.deepEqual(again.items[1]!.note, { id: "s12.0", summary: "built it", age: 0 });
 
   // recall resolves note ids to the range they replaced, and shows originals.
   const spansOf = resolveIds(again, ["s12.0"]);
@@ -274,4 +274,38 @@ test("message numbers and notes survive a fork of a branch with labels", () => {
     renderOriginals(after, resolveIds(after, ["2-4"])),
     renderOriginals(before, resolveIds(before, ["2-4"])),
   );
+});
+
+test("notes age with each later compaction and merge with what replaced them", () => {
+  const sm = session([
+    user(0, "a"),
+    assistant(0, x(800)),
+    user(0, "b"),
+    assistant(0, x(800)),
+    user(0, "c"),
+    assistant(0, x(800)),
+    user(0, "d"),
+    assistant(0, "recent"),
+  ]);
+  compact(sm, { collapse: [{ from: "2", to: "2", note: "Did a." }] });
+  compact(sm, { collapse: [{ from: "4", to: "4", note: "Did b." }] });
+  compact(sm, { collapse: [{ from: "6", to: "6", note: "Did c." }] });
+  const notes = () => view(sm).items.flatMap((it) => (it.note ? [it.note] : []));
+  assert.deepEqual(
+    notes().map((n) => [n.summary, n.age]),
+    [
+      ["Did a.", 2],
+      ["Did b.", 1],
+      ["Did c.", 0],
+    ],
+  );
+  const later = notes()[2]!.id;
+  const old = { ...limits, mergeAfterCompactions: 1 };
+  compact(sm, { collapseUnits: [{ id: "m1", note: "Did a and b.", seeAlso: [later] }] }, old);
+  const v = view(sm);
+  const merged = v.items.find((it) => it.note?.summary === "Did a and b.")!;
+  assert.deepEqual([merged.from, merged.to, merged.note!.age], [1, 4, 0]);
+  assert.equal(textOf(merged.message), noteText(1, 4, "Did a and b.", [later]));
+  // The later note keeps its id, so seeAlso still names it.
+  assert.equal(notes().find((n) => n.summary === "Did c.")!.id, later);
 });

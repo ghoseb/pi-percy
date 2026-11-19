@@ -68,8 +68,9 @@ export function withText(m: AgentMessage, text: string): AgentMessage {
 }
 
 /** What the model sees in place of squished messages. */
-export function noteText(from: number, to: number, summary: string): string {
-  return `[Messages ${from}-${to} compacted; ${RECALL_TOOL} shows them. Summary:]\n${summary}`;
+export function noteText(from: number, to: number, summary: string, seeAlso: readonly string[] = []): string {
+  const text = `[Messages ${from}-${to} compacted; ${RECALL_TOOL} shows them. Summary:]\n${summary}`;
+  return seeAlso.length === 0 ? text : `${text}\nSee also: ${seeAlso.join(", ")}.`;
 }
 
 const TRIMMED_PREFIX = "[Tool output compacted";

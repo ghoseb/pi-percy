@@ -71,7 +71,7 @@ export function isNudgeEntry(e: SessionEntry, kind?: "context" | "idle"): e is C
  * (seq) and sizes are kept for display; numbers are stable branch positions.
  */
 export interface StoredCompaction {
-  squishes: { from: string; to: string; fromSeq: number; toSeq: number; summary: string }[];
+  squishes: { from: string; to: string; fromSeq: number; toSeq: number; summary: string; seeAlso?: string[] }[];
   trims: { entry: string; seq: number; toolCallId: string }[];
   hiddenEntries: string[];
   hiddenToolCallIds: string[];
@@ -116,15 +116,26 @@ export function branchView(branch: readonly SessionEntry[], projection: SessionP
     return n;
   };
 
-  // The latest note recorded for each carrier.
-  const notes = new Map<string, { from: number; to: number; id: string; summary: string }>();
+  // The latest note recorded for each carrier, with the number of its record
+  // among the compactions on the branch.
+  const notes = new Map<
+    string,
+    { from: number; to: number; id: string; summary: string; seeAlso: string[]; record: number }
+  >();
   const records = new Map<number, StoredCompaction>();
   numbered.forEach((e, i) => {
     if (!isRecordEntry(e)) return;
     const record = e.data!;
     records.set(i + 1, record);
     record.squishes.forEach((s, n) => {
-      notes.set(s.from, { from: seq(s.from), to: seq(s.to), id: `s${i + 1}.${n}`, summary: s.summary });
+      notes.set(s.from, {
+        from: seq(s.from),
+        to: seq(s.to),
+        id: `s${i + 1}.${n}`,
+        summary: s.summary,
+        seeAlso: s.seeAlso ?? [],
+        record: records.size,
+      });
     });
   });
 
@@ -138,8 +149,9 @@ export function branchView(branch: readonly SessionEntry[], projection: SessionP
       }
       const note = notes.get(sourceEntry.id);
       // The carrier shows the note while its edit is in effect.
-      if (note && onlyText(message) === noteText(note.from, note.to, note.summary)) {
-        items.push({ from: note.from, to: note.to, note: { id: note.id, summary: note.summary }, message });
+      if (note && onlyText(message) === noteText(note.from, note.to, note.summary, note.seeAlso)) {
+        const age = records.size - note.record;
+        items.push({ from: note.from, to: note.to, note: { id: note.id, summary: note.summary, age }, message });
       } else {
         const n = seq(sourceEntry.id);
         const summarizes = summarizedBy(sourceEntry, seqOf);
@@ -248,6 +260,7 @@ export function compactionDrafts(
       fromSeq: s.from,
       toSeq: s.to,
       summary: s.summary,
+      ...(s.seeAlso === undefined ? {} : { seeAlso: s.seeAlso }),
     })),
     trims: compaction.trims.map((t) => ({ entry: id(t.seq), seq: t.seq, toolCallId: t.toolCallId })),
     hiddenEntries: compaction.hiddenSeqs.map(id),

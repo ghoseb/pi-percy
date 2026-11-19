@@ -1,8 +1,8 @@
 // The index the agent compacts from.
 import { contentText, isTrimmedOutput } from "./messages.ts";
 import { estimateTokens, itemId, itemTokens, type Row, recentStart, rowId, splitRows } from "./rows.ts";
-import { COMPACT_TOOL, type Item, type Limits, RECALL_TOOL } from "./types.ts";
-import { aloneRows, compactionUnits, SMALL_TOKENS, worthListing } from "./units.ts";
+import { COMPACT_TOOL, type Item, type Limits, MAX_SEE_ALSO, RECALL_TOOL } from "./types.ts";
+import { aloneRows, type CompactionUnit, compactionUnits, SMALL_TOKENS, worthListing } from "./units.ts";
 import { compactionView } from "./view.ts";
 
 function guidance(maxCollapseTokens: number): string {
@@ -23,7 +23,7 @@ function guidance(maxCollapseTokens: number): string {
   const request = [
     `Then call ${COMPACT_TOOL} with action "compact": trim lists ids of rows whose tool outputs you no longer need, and collapseUnits lists {id, note} safe units below. Raw collapse {from, to, note} ranges remain available for advanced use.`,
     `A range may not cover more than ~${Math.floor(maxCollapseTokens / 1000)}k tokens unless it is a single row.`,
-    "Rows marked * are messages from the user, notes from earlier compactions, and summaries: they carry the task and its rules, so a range may not cover one unless it is just that row.",
+    "Rows marked * are messages from the user, notes from earlier compactions, and summaries: they carry the task and its rules, so a range may not cover one unless it is just that row, or it is a merge of old notes listed below.",
   ].join(" ");
   return `${selection}\n\n${request}`;
 }
@@ -88,10 +88,36 @@ export function buildIndex(
     "Safe collapse units (use collapseUnits with a note):",
     ...(unitLines.length > 0 ? unitLines : ["none"]),
     ...(unlisted > 0 ? [`(${unlisted} more under ~${SMALL_TOKENS} tokens each are not listed.)`] : []),
+    ...mergeSection(units.merges, limits.mergeAfterCompactions),
     ...(protectedLines.length > 0 ? ["Protected rows:", ...protectedLines] : []),
   ].join("\n");
   return { text: `${out}${tabulate(table)}\`\`\`\n\n${unitSection}\n`, rows: recentRow };
 }
+
+/** The index lines that offer merges of old notes, if there are any. */
+function mergeSection(merges: readonly CompactionUnit[], after: number): string[] {
+  if (merges.length === 0) return [];
+  const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+  return [
+    `Merges of old notes (written at least ${after} compactions ago) and the messages between them (use collapseUnits with {id, note, seeAlso}):`,
+    ...merges.map(
+      (m) =>
+        `${m.id}: ${m.from}-${m.to}, ${[
+          plural(m.notes ?? 0, "note"),
+          plural(m.users ?? 0, "user message"),
+          ...(m.others ? [plural(m.others, "other row")] : []),
+        ].join(", ")}, ~${m.tokens} tokens`,
+    ),
+    MERGE_GUIDANCE,
+  ];
+}
+
+/** How to write a merged note. */
+export const MERGE_GUIDANCE = [
+  "To merge, write one note that keeps only what is still true: decisions in force, the user's rules and corrections, paths, ids, and commits.",
+  "Drop what later work made invalid or replaced.",
+  `In seeAlso, give up to ${MAX_SEE_ALSO} ids of later notes (s<n>.<i>) or message numbers that replaced part of it or add to it.`,
+].join(" ");
 
 /** Describes a folded run of small rows that each collapse only on their own. */
 function foldedRows(rows: readonly Row[]): string {

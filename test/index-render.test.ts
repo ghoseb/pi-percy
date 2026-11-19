@@ -1,10 +1,21 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { compactIndex, quoteStart, readableToolInput } from "../extensions/percy/index-render.ts";
+import { compactIndex, MERGE_GUIDANCE, quoteStart, readableToolInput } from "../extensions/percy/index-render.ts";
 import { trimmedText } from "../extensions/percy/messages.ts";
 import { type Compaction, DEFAULT_LIMITS, emptyCompaction, type Item, type Limits } from "../extensions/percy/types.ts";
 import { applyCompaction } from "../extensions/percy/view.ts";
-import { assistant, assistantMessage, call, compactCall, nudge, output, toolCall, user, x } from "./fixtures.ts";
+import {
+  assistant,
+  assistantMessage,
+  call,
+  compactCall,
+  nudge,
+  oldHistory,
+  output,
+  toolCall,
+  user,
+  x,
+} from "./fixtures.ts";
 
 const limits = (keepRecentTokens: number): Limits => ({ ...DEFAULT_LIMITS, keepRecentTokens });
 
@@ -122,6 +133,17 @@ test("index folds runs of small rows that collapse only on their own", () => {
   // A big row and a lone small row keep their own lines.
   assert.match(index, /^4 +user\* +\d+ +text /m);
   assert.match(index, /^5 +user\* +\d+ +text "fifth"$/m);
+});
+
+test("index offers merges of old notes", () => {
+  const index = compactIndex(oldHistory(), limits(1));
+  assert.match(
+    index,
+    /\nMerges of old notes \(written at least 10 compactions ago\) and the messages between them \(use collapseUnits with \{id, note, seeAlso\}\):\nm1: 1-s10\.1, 2 notes, 2 user messages, ~\d+ tokens\n/,
+  );
+  assert.ok(index.includes(MERGE_GUIDANCE));
+  const young = compactIndex(oldHistory(), { ...limits(1), mergeAfterCompactions: 20 });
+  assert.ok(!young.includes("Merges of old notes"));
 });
 
 // From Shelley's TestBuildCompactionOrphans.

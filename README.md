@@ -89,6 +89,7 @@ To prevent a nudge after each few turns, pi-percy does these two things:
 - pi-percy sends a nudge only when a compaction can save approximately 20k tokens or more.
   It calculates this value from the safe units of the index.
   Your messages, the notes and the summaries do not count, because the agent can only collapse them alone.
+  Half of the tokens of each merge of old notes count (see [Merge old notes](#merge-old-notes)).
   If a compaction cannot save this much, pi-percy does not send that nudge.
   It can send the next nudge one step later.
 
@@ -170,6 +171,30 @@ To read the original messages, the agent calls `recall` with the ID `85-1319`.
 The index lists only units of approximately 500 tokens or more.
 It gives the number of smaller units.
 The smaller units stay valid.
+
+#### Merge old notes
+
+In a long session, the notes and your messages stay in the context after each compaction.
+They become a large part of the context.
+Thus a note that is very old can be merged with other old notes.
+
+A note is old when it was written `mergeAfterCompactions` compactions ago (default 10) or before that.
+The index lists merge units (`m1`, `m2`, ...).
+Each merge unit is a sequence of old notes and the messages between them: your messages and other old work.
+It has two or more notes and ends with a note.
+It has approximately `maxCollapseTokens` tokens or fewer.
+
+The agent selects a merge unit in `collapseUnits` and writes one new note.
+The new note keeps only the data that is still correct: the decisions in force, your rules and corrections, paths, IDs,
+and commits.
+The agent does not keep data that later work made incorrect or replaced.
+
+In `seeAlso`, the agent can give up to 9 IDs of later notes (`s<n>.<i>`) or later message numbers.
+These are the notes and messages that replaced part of the merged notes, or that add to them.
+The note keeps these IDs and shows them at its end, for example: `See also: s30.0, 1312`
+
+The validator rejects an ID that is not later than the merged messages, or that is not in the context.
+`recall` with the ID of the new note still shows all the original messages.
 
 #### The validator
 
@@ -450,6 +475,7 @@ A setting in a trusted project replaces the agent setting.
     "nudgeMinSavingsTokens": 20000,
     "keepRecentTokens": 20000,
     "maxCollapseTokens": 20000,
+    "mergeAfterCompactions": 10,
     "idleMinutes": 8,
     "idleMinSavingsTokens": 30000
   }
@@ -463,6 +489,7 @@ A setting in a trusted project replaces the agent setting.
 | `nudgeMinSavingsTokens` |   20000 | Send a nudge only when a compaction can save approximately this many tokens. To send all nudges, set `0`.                                             |
 | `keepRecentTokens`      |   20000 | Keep approximately this many of the newest tokens unchanged.                                                                                          |
 | `maxCollapseTokens`     |   20000 | A collapse of many messages can have approximately this many tokens at most. The value must be more than 0. A collapse of one large row has no limit. |
+| `mergeAfterCompactions` |      10 | The index offers to merge notes that were written this many compactions ago or before. To turn off merges, set `0`.                                   |
 | `idleMinutes`           |       8 | Wait this many minutes before an idle compaction. To turn off idle compaction, set `0`.                                                               |
 | `idleMinSavingsTokens`  |   30000 | Start an idle compaction only when a compaction can save approximately this many tokens.                                                              |
 
