@@ -12,18 +12,19 @@ test("applySettings maps keys and reports what it cannot use", () => {
     {
       nudgeTokens: 150_000,
       nudgeStepTokens: 25_000,
+      nudgeMinSavingsTokens: 10_000,
       keepRecentTokens: 0,
       maxCollapseTokens: 10_000,
       idleMinutes: 0,
-      idleMinTokens: 40_000,
+      idleMinSavingsTokens: 40_000,
     },
     "s.json",
   );
   assert.deepEqual(problems, []);
   assert.deepEqual(settings, {
     limits: { keepRecentTokens: 0, maxCollapseTokens: 10_000 },
-    nudge: { at: 150_000, step: 25_000 },
-    idle: { minutes: 0, minTokens: 40_000 },
+    nudge: { at: 150_000, step: 25_000, minSavings: 10_000 },
+    idle: { minutes: 0, minSavings: 40_000 },
   });
 
   const bad = applySettings(
@@ -36,6 +37,13 @@ test("applySettings maps keys and reports what it cannot use", () => {
   assert.ok(bad.problems[0]!.includes("percy.nudgeTokens must be a positive number"), String(bad.problems[0]));
   assert.ok(bad.problems[1]!.includes("percy.idleMinutes must be a non-negative number"), String(bad.problems[1]));
   assert.ok(bad.problems[3]!.includes("unknown setting percy.nope"), String(bad.problems[3]));
+
+  // A key pi-percy no longer reads says what replaced it.
+  const old = applySettings(DEFAULT_SETTINGS, { idleMinTokens: 50_000 }, "s.json");
+  assert.deepEqual(old.settings, DEFAULT_SETTINGS);
+  assert.deepEqual(old.problems, [
+    "s.json: percy.idleMinTokens is no longer used; use percy.idleMinSavingsTokens, the tokens a compaction must be able to save",
+  ]);
 
   assert.deepEqual(applySettings(DEFAULT_SETTINGS, undefined, "s.json"), { settings: DEFAULT_SETTINGS, problems: [] });
   assert.deepEqual(applySettings(DEFAULT_SETTINGS, [1], "s.json").problems, ['s.json: "percy" must be an object']);

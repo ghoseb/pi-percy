@@ -80,6 +80,21 @@ Run `/reload` after you change the extension code or the `percy` settings.
 By default, pi-percy sends the first nudge when a response reports 200k context tokens.
 After that, it sends one more nudge for each 50k tokens.
 
+Some context cannot become smaller: the system prompt, the tools, the recent part, your messages and the notes.
+Thus, after a compaction, the context can stay near the threshold.
+To prevent a nudge after each few turns, pi-percy does these two things:
+
+- After a compaction, the first nudge comes when the context is one step (50k tokens) larger than after the compaction.
+  It never comes before the threshold.
+- pi-percy sends a nudge only when a compaction can save approximately 20k tokens or more.
+  It calculates this value from the safe units of the index.
+  Your messages, the notes and the summaries do not count, because the agent can only collapse them alone.
+  If a compaction cannot save this much, pi-percy does not send that nudge.
+  It can send the next nudge one step later.
+
+These rules apply only to nudges.
+The agent can always compact, and pi-percy does not reject a small compaction.
+
 pi-percy does not make an extra model request for a nudge.
 As in Shelley, the nudge goes with the next model request:
 
@@ -181,8 +196,9 @@ These messages have no more use after the compaction.
 
 The result of the call tells what asked for the compaction, because the compaction removes that nudge:
 `(via: context nudge)`, `(via: idle session nudge)`, or `(via: user command)` for `/percy:compact-in-place`.
-If none of these asked, the agent can give a short `reason` (200 characters or less). Then the result ends with `(via: agent: <reason>)`.
-pi-percy ignores the reason when a nudge or the command asked.
+If none of these asked, the agent can give a short `reason` (200 characters or less).
+Then the result ends with `(via: agent: <reason>)`.
+If a nudge or the command asked, pi-percy ignores the reason.
 
 pi-percy applies a compaction only when the result of the tool call ends the turn.
 The call and its result stay in the context until the next compaction removes them.
@@ -327,10 +343,8 @@ Thus, pi-percy cancels such a jump.
 ### 5. pi-percy compacts an idle conversation once
 
 After the configured idle time, pi-percy starts one housekeeping turn.
-It starts this turn only in these conditions:
-
-- The context is large enough.
-- The context has content that is older than the recent part.
+It starts this turn only when a compaction can save approximately 30k tokens or more.
+It calculates this value as for a nudge.
 
 The idle prompt tells the model not to reply to the user.
 
@@ -433,25 +447,30 @@ A setting in a trusted project replaces the agent setting.
   "percy": {
     "nudgeTokens": 200000,
     "nudgeStepTokens": 50000,
+    "nudgeMinSavingsTokens": 20000,
     "keepRecentTokens": 20000,
     "maxCollapseTokens": 20000,
     "idleMinutes": 8,
-    "idleMinTokens": 50000
+    "idleMinSavingsTokens": 30000
   }
 }
 ```
 
-| Setting             | Default | Meaning                                                                                                                                               |
-| ------------------- | ------: | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `nudgeTokens`       |  200000 | Send the first nudge at this context size. The value must be more than 0.                                                                             |
-| `nudgeStepTokens`   |   50000 | Send one more nudge for each increase of this many tokens. The value must be more than 0.                                                             |
-| `keepRecentTokens`  |   20000 | Keep approximately this many of the newest tokens unchanged.                                                                                          |
-| `maxCollapseTokens` |   20000 | A collapse of many messages can have approximately this many tokens at most. The value must be more than 0. A collapse of one large row has no limit. |
-| `idleMinutes`       |       8 | Wait this many minutes before an idle compaction. To turn off idle compaction, set `0`.                                                               |
-| `idleMinTokens`     |   50000 | An idle compaction needs an estimated context of at least this size. To allow all context sizes, set `0`.                                             |
+| Setting                 | Default | Meaning                                                                                                                                               |
+| ----------------------- | ------: | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `nudgeTokens`           |  200000 | Send the first nudge at this context size. The value must be more than 0.                                                                             |
+| `nudgeStepTokens`       |   50000 | Send one more nudge for each increase of this many tokens. The value must be more than 0.                                                             |
+| `nudgeMinSavingsTokens` |   20000 | Send a nudge only when a compaction can save approximately this many tokens. To send all nudges, set `0`.                                             |
+| `keepRecentTokens`      |   20000 | Keep approximately this many of the newest tokens unchanged.                                                                                          |
+| `maxCollapseTokens`     |   20000 | A collapse of many messages can have approximately this many tokens at most. The value must be more than 0. A collapse of one large row has no limit. |
+| `idleMinutes`           |       8 | Wait this many minutes before an idle compaction. To turn off idle compaction, set `0`.                                                               |
+| `idleMinSavingsTokens`  |   30000 | Start an idle compaction only when a compaction can save approximately this many tokens.                                                              |
 
 pi-percy checks the settings when it starts.
 It shows a warning for an unknown or incorrect value.
+The old setting `idleMinTokens` has no effect now.
+If you have this setting, pi-percy shows a warning.
+Use `idleMinSavingsTokens`.
 It also shows a warning if the nudge threshold is too near to the point where Pi compacts for the selected model.
 
 ## Limits

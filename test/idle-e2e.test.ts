@@ -9,8 +9,8 @@ import { TOGGLE_COMMAND } from "../extensions/percy/types.ts";
 import { anthropicRequestWire, misplacedSystemMessages } from "./anthropic-wire.ts";
 import { dump, type Harness, startHarness } from "./harness.ts";
 
-const IDLE = { minutes: 0.002, minTokens: 1 };
-const RESUMED_IDLE = { minutes: 0.01, minTokens: 1 };
+const IDLE = { minutes: 0.002, minSavings: 1 };
+const RESUMED_IDLE = { minutes: 0.01, minSavings: 1 };
 
 async function until(cond: () => boolean, what: string, ms = 3000) {
   const end = Date.now() + ms;
@@ -175,8 +175,8 @@ test("a /tree jump back to an idle run does not start another", async () => {
   }
 });
 
-test("a small context gets no idle compaction turn", async () => {
-  const h = await startHarness({ limits: { keepRecentTokens: 1 }, idle: { ...IDLE, minTokens: 1_000_000 } });
+test("no idle compaction turn when compacting could save too little", async () => {
+  const h = await startHarness({ limits: { keepRecentTokens: 1 }, idle: { ...IDLE, minSavings: 1_000_000 } });
   try {
     await h.send("hello");
     await sleep(400);

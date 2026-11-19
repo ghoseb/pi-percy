@@ -4,26 +4,30 @@
 // compaction.
 import type { ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { isNudgeEntry } from "./branch.ts";
-import { itemTokens, recentStart } from "./rows.ts";
 import { COMPACT_TOOL, type Item, type Limits } from "./types.ts";
-import { compactionView } from "./view.ts";
+import { compactableTokens } from "./units.ts";
 
 export interface IdleSettings {
   /** Idle minutes before the compaction turn; 0 turns idle compaction off. */
   minutes: number;
-  /** Estimated context size below which a compaction turn is not worth it. */
-  minTokens: number;
+  /** Estimated tokens compacting must be able to save for a compaction turn to be worth it. */
+  minSavings: number;
 }
 
-export const DEFAULT_IDLE: IdleSettings = { minutes: 8, minTokens: 50_000 };
+export const DEFAULT_IDLE: IdleSettings = { minutes: 8, minSavings: 30_000 };
 
 /**
- * Reports whether history is worth an idle compaction turn: big enough, and
- * with something older than the recent part, which is kept as is.
+ * Reports whether history is worth an idle compaction turn: compacting it
+ * could save something, and at least minSavings tokens.
  */
-export function worthIdleCompaction(history: readonly Item[], limits: Limits, minTokens: number): boolean {
-  const view = compactionView(history);
-  return itemTokens(view) >= minTokens && recentStart(view, limits.keepRecentTokens) > 0;
+export function worthIdleCompaction(
+  history: readonly Item[],
+  limits: Limits,
+  minSavings: number,
+  systemBoundaries: readonly number[] = [],
+): boolean {
+  const savings = compactableTokens(history, limits, systemBoundaries);
+  return savings > 0 && savings >= minSavings;
 }
 
 /** The text that starts an idle compaction turn; the index follows it. */

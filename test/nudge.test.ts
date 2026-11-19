@@ -91,8 +91,23 @@ test("decideNudge: one nudge per level step", () => {
 test("decideNudge: a compacting turn's response is not decided", () => {
   // The turn that compacted at 1600 sent no nudge; its size is from before
   // the compaction. The next response is compared with the one before it.
-  assert.deepEqual(decide([S, 1100, 1600, "compacted", 1650], S), { due: true });
-  assert.deepEqual(decide([S, 1600, 1700, "compacted", 1650], S), { due: false });
+  assert.deepEqual(decide([S, 1100, 1600, "compacted", 300, 1100], S), { due: true });
+  assert.deepEqual(decide([S, 1100, 1600, "compacted", 300, 900], S), { due: false });
+});
+
+test("decideNudge: after a compaction, nudges start one step above the size it left", () => {
+  // The compaction left 900, just under the threshold: no nudge at 1000.
+  assert.deepEqual(decide([S, 1100, 1600, "compacted", 900, 1100], S), { due: false });
+  assert.deepEqual(decide([S, 1100, 1600, "compacted", 900, 1100, 1400], S), { due: true }, "900 + 500");
+  // Then one per step from there.
+  assert.deepEqual(decide([S, 1100, "compacted", 900, 1400, 1800], S), { due: false });
+  assert.deepEqual(decide([S, 1100, "compacted", 900, 1400, 1900], S), { due: true });
+  // A compaction that left the context above the threshold waits a step too.
+  assert.deepEqual(decide([S, 1700, "compacted", 1650], S), { due: false });
+  assert.deepEqual(decide([S, 1700, "compacted", 1650, 2100], S), { due: false });
+  assert.deepEqual(decide([S, 1700, "compacted", 1650, 2150], S), { due: true });
+  // A compaction that left plenty of room keeps the threshold.
+  assert.deepEqual(decide([S, 1100, "compacted", 300, 1000], S), { due: true });
 });
 
 test("decideNudge: a deferred response is not decided", () => {

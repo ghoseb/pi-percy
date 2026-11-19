@@ -3,12 +3,12 @@
 // directory's, key by key).
 import type { SettingsManager } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_IDLE, type IdleSettings } from "./idle.ts";
-import { DEFAULT_NUDGE, type NudgeSettings } from "./nudge.ts";
+import { DEFAULT_NUDGE, type NudgeConfig } from "./nudge.ts";
 import { DEFAULT_LIMITS, type Limits } from "./types.ts";
 
 export interface PercySettings {
   limits: Limits;
-  nudge: NudgeSettings;
+  nudge: NudgeConfig;
   idle: IdleSettings;
 }
 
@@ -22,11 +22,17 @@ export const DEFAULT_SETTINGS: PercySettings = {
 const KEYS = {
   nudgeTokens: (s: PercySettings, n: number) => (s.nudge = { ...s.nudge, at: n }),
   nudgeStepTokens: (s: PercySettings, n: number) => (s.nudge = { ...s.nudge, step: n }),
+  nudgeMinSavingsTokens: (s: PercySettings, n: number) => (s.nudge = { ...s.nudge, minSavings: n }),
   keepRecentTokens: (s: PercySettings, n: number) => (s.limits = { ...s.limits, keepRecentTokens: n }),
   maxCollapseTokens: (s: PercySettings, n: number) => (s.limits = { ...s.limits, maxCollapseTokens: n }),
   idleMinutes: (s: PercySettings, n: number) => (s.idle = { ...s.idle, minutes: n }),
-  idleMinTokens: (s: PercySettings, n: number) => (s.idle = { ...s.idle, minTokens: n }),
+  idleMinSavingsTokens: (s: PercySettings, n: number) => (s.idle = { ...s.idle, minSavings: n }),
 } as const;
+
+/** Keys pi-percy no longer reads, and what replaced them. */
+const REPLACED: Record<string, string> = {
+  idleMinTokens: "idleMinSavingsTokens, the tokens a compaction must be able to save",
+};
 
 /** Keys whose value must be positive; the others may be 0. */
 const POSITIVE = new Set(["nudgeTokens", "nudgeStepTokens", "maxCollapseTokens"]);
@@ -48,7 +54,9 @@ export function applySettings(
   }
   for (const [key, v] of Object.entries(value)) {
     const apply = KEYS[key as keyof typeof KEYS];
-    if (!apply) {
+    if (REPLACED[key]) {
+      problems.push(`${source}: percy.${key} is no longer used; use percy.${REPLACED[key]}`);
+    } else if (!apply) {
       problems.push(`${source}: unknown setting percy.${key} (known: ${Object.keys(KEYS).join(", ")})`);
     } else if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || (POSITIVE.has(key) && v === 0)) {
       problems.push(`${source}: percy.${key} must be a ${POSITIVE.has(key) ? "positive" : "non-negative"} number`);

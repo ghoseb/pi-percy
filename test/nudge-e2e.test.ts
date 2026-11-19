@@ -122,6 +122,17 @@ test("a nudge follows a tool batch within the run", async () => {
   }
 });
 
+test("no nudge when compacting could save too little", async () => {
+  const h = await startHarness({ nudge: { at: 1, step: 1_000_000, minSavings: 1_000_000 } });
+  try {
+    await h.call("echo", { text: "x" });
+    await h.send("again");
+    assert.equal(nudges(h).length, 0);
+  } finally {
+    h.dispose();
+  }
+});
+
 test("a nudge due while a message is queued waits for the next request", async () => {
   let steered = false;
   const h: Harness = await startHarness(

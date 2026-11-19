@@ -12,13 +12,15 @@ test("blackiron system-delta idle regression sends a valid request", async () =>
   let manager;
   try {
     await first.send("hello");
+    // A second exchange, so the first reply is old work worth compacting.
+    await first.send("more");
     first.session.sessionManager.appendMessage({ role: "system", content: "Changed prompt.", timestamp: Date.now() });
     manager = first.session.sessionManager;
   } finally {
     first.dispose();
   }
   const resumed = await startHarness(
-    { limits: { keepRecentTokens: 1 }, idle: { minutes: 0.002, minTokens: 1 } },
+    { limits: { keepRecentTokens: 1 }, idle: { minutes: 0.002, minSavings: 1 } },
     { sessionManager: manager },
   );
   try {

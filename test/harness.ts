@@ -143,7 +143,11 @@ export interface HarnessOptions {
   dir?: string;
 }
 
-/** Starts a session with pi-percy on its defaults, overridden by settings; pi's settings.json files are not read. */
+/**
+ * Starts a session with pi-percy on its defaults, overridden by settings,
+ * except that nudges and idle compaction need no minimum savings; pi's
+ * settings.json files are not read.
+ */
 export async function startHarness(
   settings: PercyOptions["settings"] = {},
   harness: HarnessOptions = {},
@@ -192,7 +196,12 @@ export async function startHarness(
       honestUsage,
       echoTool,
       createPercyExtension({
-        settings,
+        // Test sessions are tiny: nudge and idle compaction need no savings unless a test says so.
+        settings: {
+          ...settings,
+          nudge: { minSavings: 0, ...settings.nudge },
+          idle: { minSavings: 0, ...settings.idle },
+        },
         piSettings: () => SettingsManager.inMemory(harness.settings ?? {}),
         ...(harness.timers ? { timers: harness.timers } : {}),
       }),

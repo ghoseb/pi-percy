@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { compactionUnits } from "../extensions/percy/units.ts";
+import { compactableTokens, compactionUnits } from "../extensions/percy/units.ts";
 import { DEFAULT_LIMITS, type Item } from "../extensions/percy/types.ts";
 import { assistant, call, output, user, x } from "./fixtures.ts";
 
@@ -64,4 +64,20 @@ test("compaction units protect a row before a system message", () => {
     [["1", "1"]],
   );
   assert.deepEqual(result.protectedRows, [{ id: "2", reason: "precedes a system message" }]);
+});
+
+test("compactable tokens count work units only", () => {
+  const items = [
+    user(1, x(4 * 3_000)),
+    assistant(2, x(4 * 1_000)),
+    assistant(3, x(4 * 500)),
+    user(4, x(4 * 2_000)),
+    assistant(5, "the recent part"),
+  ];
+  // Rows 2-3 are one unit of work; the user messages, however large, and the
+  // recent part do not count.
+  assert.equal(compactableTokens(items, limits(1)), 1_500);
+  // A row before a system message stays as it is.
+  assert.equal(compactableTokens(items, limits(1), [3]), 500);
+  assert.equal(compactableTokens([assistant(1, "only recent")], limits(1)), 0);
 });

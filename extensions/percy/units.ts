@@ -12,8 +12,10 @@ export interface CompactionUnit {
   from: string;
   to: string;
   tokens: number;
-  /** A protected row that is valid only as its own collapse. */
+  /** One row, or several. */
   kind: "single" | "range";
+  /** A row that collapses only on its own: a user message, a note, or a summary. */
+  alone: boolean;
 }
 
 export interface ProtectedRow {
@@ -121,7 +123,7 @@ export function compactionUnits(
   const units: CompactionUnit[] = [];
   const protectedRows: ProtectedRow[] = [];
   const protect = (row: number, reason: string) => protectedRows.push({ id: rowId(rows[row]!), reason });
-  const add = (from: number, to: number) => {
+  const add = (from: number, to: number, alone = false) => {
     const first = rows[from]!;
     const last = rows[to]!;
     units.push({
@@ -130,6 +132,7 @@ export function compactionUnits(
       to: rowId(last),
       tokens: itemTokens(rows.slice(from, to + 1).flat()),
       kind: from === to ? "single" : "range",
+      alone,
     });
   };
 
@@ -141,7 +144,7 @@ export function compactionUnits(
       continue;
     }
     if (alone[i]) {
-      add(i, i);
+      add(i, i, true);
       i++;
       continue;
     }
@@ -150,4 +153,20 @@ export function compactionUnits(
     appendChunks(rows, start, i - 1, limits.maxCollapseTokens, add, protect);
   }
   return { units, protectedRows };
+}
+
+/**
+ * Roughly what compacting history could save now: the tokens of its units of
+ * ordinary work. Rows that collapse only on their own (user messages, notes,
+ * summaries) are left out, however large: the agent is told to keep them, and
+ * a new note would save little of a small one.
+ */
+export function compactableTokens(
+  history: readonly Item[],
+  limits: Limits,
+  systemBoundaries: readonly number[] = [],
+): number {
+  return compactionUnits(history, limits, systemBoundaries)
+    .units.filter((u) => !u.alone)
+    .reduce((n, u) => n + u.tokens, 0);
 }

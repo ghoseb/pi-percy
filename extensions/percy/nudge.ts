@@ -7,6 +7,10 @@
 // is above the level at the previous decision, which is skipped right after
 // a compaction. Dropping below a level (after a compaction) re-arms it, and a
 // resumed or re-branched session does not repeat a nudge.
+//
+// Unlike Shelley, the levels after a compaction start one step above the
+// size it left, so a compaction that leaves the context just under the
+// threshold is not nudged again a few turns later.
 
 import { calculateContextTokens, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import { isRecordEntry } from "./branch.ts";
@@ -24,7 +28,13 @@ export interface NudgeSettings {
   step: number;
 }
 
-export const DEFAULT_NUDGE: NudgeSettings = { at: 200_000, step: 50_000 };
+/** The nudge settings, with the least a compaction must be able to save to be asked for. */
+export interface NudgeConfig extends NudgeSettings {
+  /** Estimated tokens compacting must be able to save for a nudge to be sent. */
+  minSavings: number;
+}
+
+export const DEFAULT_NUDGE: NudgeConfig = { at: 200_000, step: 50_000, minSavings: 20_000 };
 
 /** -1 below the threshold, then 0, 1, ... for each step beyond it. */
 export function nudgeLevel(tokens: number, s: NudgeSettings): number {
@@ -79,6 +89,22 @@ function decidedTokens(branch: readonly SessionEntry[], end: number): number | u
   return undefined;
 }
 
+/**
+ * The context size the latest compaction before the response at
+ * branch[index] (of tokens context) left: the size the first response after
+ * it reports. Undefined when no compaction came before it. Pi's own
+ * compaction counts too.
+ */
+function sizeAfterCompaction(branch: readonly SessionEntry[], index: number, tokens: number): number | undefined {
+  let after = tokens;
+  for (let i = Math.min(index, branch.length) - 1; i >= 0; i--) {
+    const e = branch[i]!;
+    if (isRecordEntry(e) || e.type === "compaction") return after;
+    after = entryTokens(e) ?? after;
+  }
+  return undefined;
+}
+
 /** The nudge settings last recorded on branch, if any. */
 function recordedNudge(branch: readonly SessionEntry[]): NudgeSettings | undefined {
   for (let i = branch.length - 1; i >= 0; i--) {
@@ -97,9 +123,12 @@ export interface NudgeDecision {
 
 /**
  * The nudge decision after the response at branch[index], of tokens context:
- * Shelley's contextNudger, taken before each model request. When the
- * settings changed since the branch was last nudged (or it never was), the
- * earlier responses do not count, so lowering the threshold nudges right away.
+ * Shelley's contextNudger, taken before each model request. After a
+ * compaction, the first nudge waits until the context has grown one step
+ * beyond the size the compaction left, and is never below the threshold.
+ * When the settings changed since the branch was last nudged (or it never
+ * was), the earlier responses and compactions do not count, so lowering the
+ * threshold nudges right away.
  */
 export function decideNudge(
   branch: readonly SessionEntry[],
@@ -110,6 +139,8 @@ export function decideNudge(
   const recorded = recordedNudge(branch);
   const changed = recorded?.at !== s.at || recorded?.step !== s.step;
   const previous = changed ? undefined : decidedTokens(branch, index);
-  const due = nudgeDue(tokens, previous, s);
+  const after = changed ? undefined : sizeAfterCompaction(branch, index, tokens);
+  const levels = after === undefined ? s : { at: Math.max(s.at, after + s.step), step: s.step };
+  const due = nudgeDue(tokens, previous, levels);
   return changed ? { record: { at: s.at, step: s.step }, due } : { due };
 }

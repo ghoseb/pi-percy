@@ -54,6 +54,7 @@ import { renderIndex, renderNudge, renderRecord } from "./render.ts";
 import { DEFAULT_SETTINGS, loadSettings, type PercySettings } from "./settings.ts";
 import { registerTools } from "./tools.ts";
 import { COMPACT_TOOL, NUDGE_TYPE, type NudgeDetails } from "./types.ts";
+import { compactableTokens } from "./units.ts";
 
 export interface PercyOptions {
   /** Overrides of the loaded settings, for tests. */
@@ -199,7 +200,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
         // The branch can have changed since the timer was armed (/tree).
         if (idleCompactionBlocked(ctx.sessionManager.getBranch())) return;
         const view = currentView(ctx);
-        if (!worthIdleCompaction(view.items, settings.limits, settings.idle.minTokens)) return;
+        if (!worthIdleCompaction(view.items, settings.limits, settings.idle.minSavings, view.systemBoundaries)) return;
         idle.startRun(() =>
           pi.sendMessage(
             {
@@ -250,6 +251,15 @@ export function createPercyExtension(options: PercyOptions = {}) {
       renderNudge(message, expanded, outputPad, theme),
     );
 
+    /**
+     * Whether compacting could save enough now to ask the agent to. When it
+     * cannot, the level passes without a nudge; the next one is a step later.
+     */
+    function worthNudge(ctx: ExtensionContext): boolean {
+      const view = currentView(ctx);
+      return compactableTokens(view.items, settings.limits, view.systemBoundaries) >= settings.nudge.minSavings;
+    }
+
     /** A context nudge: the size line and the index, and the size for its card. */
     function nudgeMessage(ctx: ExtensionContext, tokens: number) {
       const view = currentView(ctx);
@@ -276,7 +286,9 @@ export function createPercyExtension(options: PercyOptions = {}) {
       if (tokens === undefined) return [];
       const branch = ctx.sessionManager.getBranch();
       const at = branch.findIndex((e) => e.id === event.messageEntryId);
-      const { record, due } = decideNudge(branch, at < 0 ? branch.length : at, tokens, settings.nudge);
+      const decision = decideNudge(branch, at < 0 ? branch.length : at, tokens, settings.nudge);
+      const record = decision.record;
+      const due = decision.due && worthNudge(ctx);
       if (due && queued) return [{ type: "custom", customType: NUDGE_DEFERRED_TYPE, data: {} }];
       return [
         ...(record ? [{ type: "custom" as const, customType: NUDGE_SETTINGS_TYPE, data: record }] : []),
@@ -312,7 +324,7 @@ export function createPercyExtension(options: PercyOptions = {}) {
       const tokens = entryTokens(branch[index]!)!;
       const { record, due } = decideNudge(branch, index, tokens, settings.nudge);
       if (record) pi.appendEntry(NUDGE_SETTINGS_TYPE, record);
-      if (due) return { message: nudgeMessage(ctx, tokens) };
+      if (due && worthNudge(ctx)) return { message: nudgeMessage(ctx, tokens) };
       return;
     });
   };

@@ -17,6 +17,7 @@ import {
   STATUS_COMMAND,
   TOGGLE_COMMAND,
 } from "./types.ts";
+import { compactableTokens } from "./units.ts";
 import { applyCompaction, editsBetween } from "./view.ts";
 
 /** What the commands read and change of pi-percy's state. */
@@ -116,13 +117,20 @@ export function registerCommands(pi: ExtensionAPI, deps: CommandDeps): void {
         : deps.compactionEnabled()
           ? "enabled"
           : "disabled";
-      const eligible = worthIdleCompaction(view.items, settings.limits, settings.idle.minTokens);
+      const savings = compactableTokens(view.items, settings.limits, view.systemBoundaries);
+      const idleReady = worthIdleCompaction(
+        view.items,
+        settings.limits,
+        settings.idle.minSavings,
+        view.systemBoundaries,
+      );
       ctx.ui.notify(
         [
           `pi-percy: ${state}`,
           `history: ~${itemTokens(view.items)} tokens`,
-          `nudges: ~${settings.nudge.at} tokens, then every ~${settings.nudge.step}`,
-          `idle: ${deps.idleStatus(ctx)}; ${eligible ? "eligible" : `requires ~${settings.idle.minTokens} tokens and older history`}`,
+          `compactable: ~${savings} tokens`,
+          `nudges: from ~${settings.nudge.at} tokens, then every ~${settings.nudge.step}; after a compaction, one step above the size it left; need ~${settings.nudge.minSavings} compactable`,
+          `idle: ${deps.idleStatus(ctx)}; ${idleReady ? "eligible" : `needs ~${settings.idle.minSavings} compactable tokens`}`,
         ].join("\n"),
         "info",
       );

@@ -435,7 +435,7 @@ async function checkSession(h: Harness, world: World, checked: Checked) {
 const SETTINGS = {
   limits: { keepRecentTokens: 60 },
   nudge: { at: 300, step: 400 },
-  idle: { minutes: 1, minTokens: 1 },
+  idle: { minutes: 1, minSavings: 1 },
 };
 
 async function start(world: World, sessionManager: SessionManager): Promise<Harness> {

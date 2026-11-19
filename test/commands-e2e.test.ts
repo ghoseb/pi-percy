@@ -73,7 +73,7 @@ test("/percy:toggle-compaction controls compaction for this session", async () =
 });
 
 test("/percy:status reports state without a model request", async () => {
-  const h = await startHarness({ idle: { minutes: 1, minTokens: 1 } });
+  const h = await startHarness({ idle: { minutes: 1, minSavings: 1 } });
   try {
     await h.send("hello");
     const requests = h.requests.length;
@@ -277,7 +277,7 @@ test("pi-percy never changes the system prompt or the tools", async () => {
   const h = await startHarness({
     limits: { keepRecentTokens: 1 },
     nudge: { at: 1, step: 1 },
-    idle: { minutes: 0.002, minTokens: 1 },
+    idle: { minutes: 0.002, minSavings: 1 },
   });
   try {
     await h.send("hello");
