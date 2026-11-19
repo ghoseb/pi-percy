@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type ExtensionContext, SessionManager } from "@earendil-works/pi-coding-agent";
-import { idleScheduler, type Timers } from "../extensions/percy/idle.ts";
+import { idleNudgeText, idleScheduler, type Timers } from "../extensions/percy/idle.ts";
 import { NUDGE_TYPE } from "../extensions/percy/types.ts";
 
 function setup(minutes = 8) {
@@ -74,6 +74,16 @@ test("idleScheduler: a run that failed to start is not an idle run", () => {
   );
   idle.settled(ctx, false);
   assert.ok(armed());
+});
+
+test("the idle nudge starts with merges when the index offers them", () => {
+  assert.ok(!idleNudgeText(8).includes("merge"));
+  assert.ok(
+    idleNudgeText(8, 1).endsWith(
+      " The index offers 1 merge of old notes: do those first, then trim and collapse the rest.",
+    ),
+  );
+  assert.ok(idleNudgeText(8, 3).includes("offers 3 merges of old notes"));
 });
 
 test("idleScheduler: blocked after an idle nudge until the user writes", () => {

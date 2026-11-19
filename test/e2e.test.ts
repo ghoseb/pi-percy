@@ -198,6 +198,64 @@ test("a compaction nothing asked for keeps the agent's reason", async () => {
   }
 });
 
+test("old notes merge through the tool, pointing to later work", async () => {
+  const p = await startHarness({ limits: { keepRecentTokens: 1, mergeAfterCompactions: 1 } });
+  try {
+    await p.send("first task");
+    await p.call("echo", { text: "TASK_ONE" });
+    await p.send("second task");
+    await p.call("echo", { text: "TASK_TWO" });
+    await p.send("and now");
+    // A call and its output share a row, named by the call.
+    const range = (text: string) => ({
+      from: String(seqWhere(p, isCall(text))),
+      to: String(seqWhere(p, isCall(text))),
+    });
+    await p.call("compact_in_place", {
+      action: "compact",
+      collapse: [
+        { ...range("TASK_ONE"), note: "Did task one." },
+        { ...range("TASK_TWO"), note: "Did task two." },
+      ],
+    });
+    assert.equal(records(p), 1, p.lastToolResult().text);
+    // A later compaction makes those notes one compaction old.
+    await p.send("third task");
+    await p.call("echo", { text: "TASK_THREE" });
+    await p.send("fourth task");
+    const third = seqWhere(p, isCall("TASK_THREE"));
+    await p.call("compact_in_place", { action: "compact", trim: [String(third)] });
+    assert.equal(records(p), 2, p.lastToolResult().text);
+
+    await p.call("compact_in_place", { action: "index" });
+    const index = p.lastToolResult().text;
+    assert.match(index, /\nm1: \S+-\S+, 2 notes, /, index);
+
+    // The schema refuses more than 9 ids, and nothing is compacted.
+    const tooMany = Array.from({ length: 10 }, () => String(third));
+    await p.call("compact_in_place", {
+      action: "compact",
+      collapseUnits: [{ id: "m1", note: "Did tasks one and two.", seeAlso: tooMany }],
+    });
+    assert.ok(p.lastToolResult().isError, p.lastToolResult().text);
+    assert.equal(records(p), 2);
+
+    await p.call("compact_in_place", {
+      action: "compact",
+      collapseUnits: [{ id: "m1", note: "Did tasks one and two.", seeAlso: [String(third)] }],
+    });
+    const done = p.lastToolResult();
+    assert.ok(!done.isError && done.text.startsWith("Compacted: 1 collapsed"), done.text);
+    assert.equal(records(p), 3);
+    const sent = dump(p.requests[p.requests.length - 1]!).join("\n");
+    assert.ok(sent.includes(`Did tasks one and two.\nSee also: ${third}.`), sent);
+    // The merged notes are gone; only the scripted request still names them.
+    assert.ok(!sent.includes("Summary:]\nDid task one."), sent);
+  } finally {
+    p.dispose();
+  }
+});
+
 test("only one compaction per turn applies", async () => {
   const p = await startHarness({ limits: { keepRecentTokens: 1 } });
   try {

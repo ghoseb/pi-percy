@@ -89,7 +89,8 @@ To prevent a nudge after each few turns, pi-percy does these two things:
 - pi-percy sends a nudge only when a compaction can save approximately 20k tokens or more.
   It calculates this value from the safe units of the index.
   Your messages, the notes and the summaries do not count, because the agent can only collapse them alone.
-  Half of the tokens of each merge of old notes count (see [Merge old notes](#merge-old-notes)).
+  For each merge of old notes, half of the tokens of its notes
+  and your messages count (see [Merge old notes](#merge-old-notes)).
   If a compaction cannot save this much, pi-percy does not send that nudge.
   It can send the next nudge one step later.
 
@@ -179,10 +180,13 @@ They become a large part of the context.
 Thus a note that is very old can be merged with other old notes.
 
 A note is old when it was written `mergeAfterCompactions` compactions ago (default 10) or before that.
-The index lists merge units (`m1`, `m2`, ...).
+The index lists merge units (`m1`, `m2`, ...) before the other units, with their total size.
+It tells the agent to start with the merges, because no other compaction removes old notes.
 Each merge unit is a sequence of old notes and the messages between them: your messages and other old work.
 It has two or more notes and ends with a note.
 It has approximately `maxCollapseTokens` tokens or fewer.
+A merge can include units that the index also lists.
+The agent selects the merge or those units, not both.
 
 The agent selects a merge unit in `collapseUnits` and writes one new note.
 The new note keeps only the data that is still correct: the decisions in force, your rules and corrections, paths, IDs,
@@ -372,6 +376,7 @@ It starts this turn only when a compaction can save approximately 30k tokens or 
 It calculates this value as for a nudge.
 
 The idle prompt tells the model not to reply to the user.
+If the index has merges of old notes, the idle prompt tells the model to do the merges first.
 
 New user input stops the idle timer.
 An idle compaction does not start a new idle timer.

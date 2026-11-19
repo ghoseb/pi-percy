@@ -139,9 +139,11 @@ test("index offers merges of old notes", () => {
   const index = compactIndex(oldHistory(), limits(1));
   assert.match(
     index,
-    /\nMerges of old notes \(written at least 10 compactions ago\) and the messages between them \(use collapseUnits with \{id, note, seeAlso\}\):\nm1: 1-s10\.1, 2 notes, 2 user messages, ~\d+ tokens\n/,
+    /\nMerges of old notes \(written at least 10 compactions ago\) and the messages between them, ~\d+ tokens in all \(use collapseUnits with \{id, note, seeAlso\}\):\nm1: 1-s10\.1, 2 notes, 2 user messages, ~\d+ tokens\n/,
   );
   assert.ok(index.includes(MERGE_GUIDANCE));
+  // Merges come before the other units.
+  assert.ok(index.indexOf("Merges of old notes") < index.indexOf("Safe collapse units"), index);
   const young = compactIndex(oldHistory(), { ...limits(1), mergeAfterCompactions: 20 });
   assert.ok(!young.includes("Merges of old notes"));
 });

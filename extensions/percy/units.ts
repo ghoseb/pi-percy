@@ -20,6 +20,8 @@ export interface CompactionUnit {
   notes?: number;
   users?: number;
   others?: number;
+  /** For a merge: the tokens of its notes and user messages, without the other rows. */
+  oldTokens?: number;
 }
 
 export interface ProtectedRow {
@@ -196,12 +198,15 @@ function mergeUnits(
 ): CompactionUnit[] {
   const merges: CompactionUnit[] = [];
   const roles = rows.slice(0, recentRow).map((row) => mergeRole(row, limits, systemBoundaries));
-  const add = (from: number, to: number) => {
+  // Adds the merge of rows from..to up to its last note; returns that note's
+  // row, or from - 1 if there is none.
+  const add = (from: number, to: number): number => {
     let end = to;
     while (end >= from && roles[end] !== "note") end--;
+    const covered = rows.slice(from, end + 1);
     const count = (role: string) => roles.slice(from, end + 1).filter((r) => r === role).length;
     const notes = count("note");
-    if (notes < 2) return;
+    if (notes < 2) return end;
     merges.push({
       id: `m${merges.length + 1}`,
       from: rowId(rows[from]!),
@@ -212,7 +217,9 @@ function mergeUnits(
       notes,
       users: count("user"),
       others: count("other"),
+      oldTokens: itemTokens(covered.filter((_, k) => roles[from + k] !== "other").flat()),
     });
+    return end;
   };
   for (let i = 0; i < roles.length;) {
     if (roles[i] === undefined) {
@@ -224,9 +231,10 @@ function mergeUnits(
     for (; i < roles.length && roles[i] !== undefined; i++) {
       const next = itemTokens(rows[i]!);
       if (i > start && tokens + next > limits.maxCollapseTokens) {
-        add(start, i - 1);
-        start = i;
-        tokens = 0;
+        // Rows after the merge's last note start the next merge.
+        const end = add(start, i - 1);
+        start = end >= start ? end + 1 : i;
+        tokens = itemTokens(rows.slice(start, i).flat());
       }
       tokens += next;
     }
@@ -237,7 +245,9 @@ function mergeUnits(
 
 /**
  * Roughly what compacting history could save now: the tokens of its units of
- * ordinary work, and half those of its merges, as a merged note keeps more.
+ * ordinary work, and half those of the notes and user messages its merges
+ * cover, as a merged note keeps more. Work inside a merge counts once, as a
+ * unit.
  * Rows that collapse only on their own (user messages, notes, summaries) are
  * left out, however large: the agent is told to keep them, and a new note
  * would save little of a small one.
@@ -249,5 +259,5 @@ export function compactableTokens(
 ): number {
   const { units, merges } = compactionUnits(history, limits, systemBoundaries);
   const work = units.filter((u) => !u.alone).reduce((n, u) => n + u.tokens, 0);
-  return work + Math.floor(merges.reduce((n, u) => n + u.tokens, 0) / 2);
+  return work + Math.floor(merges.reduce((n, u) => n + (u.oldTokens ?? 0), 0) / 2);
 }

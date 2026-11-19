@@ -54,7 +54,7 @@ import { renderIndex, renderNudge, renderRecord } from "./render.ts";
 import { DEFAULT_SETTINGS, loadSettings, type PercySettings } from "./settings.ts";
 import { registerTools } from "./tools.ts";
 import { COMPACT_TOOL, NUDGE_TYPE, type NudgeDetails } from "./types.ts";
-import { compactableTokens } from "./units.ts";
+import { compactableTokens, compactionUnits } from "./units.ts";
 
 export interface PercyOptions {
   /** Overrides of the loaded settings, for tests. */
@@ -206,7 +206,13 @@ export function createPercyExtension(options: PercyOptions = {}) {
             {
               customType: NUDGE_TYPE,
               content: [
-                { type: "text", text: idleNudgeText(settings.idle.minutes) },
+                {
+                  type: "text",
+                  text: idleNudgeText(
+                    settings.idle.minutes,
+                    compactionUnits(view.items, settings.limits, view.systemBoundaries).merges.length,
+                  ),
+                },
                 { type: "text", text: compactIndex(view.items, settings.limits, view.systemBoundaries) },
               ],
               display: true,

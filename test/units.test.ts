@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { compactableTokens, compactionUnits } from "../extensions/percy/units.ts";
 import { DEFAULT_LIMITS, type Item } from "../extensions/percy/types.ts";
-import { assistant, call, oldHistory, output, user, x } from "./fixtures.ts";
+import { itemTokens } from "../extensions/percy/rows.ts";
+import { assistant, call, note, oldHistory, output, user, x } from "./fixtures.ts";
 
 const limits = (keepRecentTokens: number) => ({ ...DEFAULT_LIMITS, keepRecentTokens });
 
@@ -106,9 +107,38 @@ test("merges join old notes and the user messages between them", () => {
   assert.ok(compactionUnits(oldHistory(), small).merges.every((m) => m.tokens <= 30));
 });
 
+test("a long run of old notes splits into merges that leave no row out", () => {
+  const history: Item[] = [];
+  for (let k = 0; k < 8; k++) {
+    history.push(user(10 * k + 1, `request ${k} ${"x".repeat(40 * (k % 3))}`));
+    history.push(note(10 * k + 2, 10 * k + 9, `s1.${k}`, `Did task ${k}.`, 12));
+  }
+  history.push(user(100, "now"), assistant(101, "the recent part"));
+  const position = new Map(history.map((it, i) => [it.note ? it.note.id : String(it.from), i]));
+  let split = 0;
+  for (let budget = 20; budget <= 200; budget += 5) {
+    const { merges } = compactionUnits(history, { ...limits(1), maxCollapseTokens: budget });
+    for (let k = 1; k < merges.length; k++) {
+      // Each merge starts right after the last one, unless that one ended a
+      // run of fewer than two notes.
+      const gap = position.get(merges[k]!.from)! - position.get(merges[k - 1]!.to)! - 1;
+      assert.ok(gap === 0 || gap === 2, `budget ${budget}: gap ${gap} before ${merges[k]!.id}`);
+      if (gap === 0) split++;
+    }
+  }
+  assert.ok(split > 0);
+});
+
 test("compactable tokens count half of what merges cover", () => {
   const history = oldHistory();
   const merged = compactionUnits(history, limits(1)).merges[0]!.tokens;
   const without = compactableTokens(history, { ...limits(1), mergeAfterCompactions: 0 });
   assert.equal(compactableTokens(history, limits(1)), without + Math.floor(merged / 2));
+  // Work inside a merge counts once, as a unit of its own.
+  const reply = assistant(100, "a reply between old notes");
+  history.splice(3, 0, reply);
+  const merge = compactionUnits(history, limits(1)).merges[0]!;
+  assert.equal(merge.others, 1);
+  const work = compactableTokens(history, { ...limits(1), mergeAfterCompactions: 0 });
+  assert.equal(compactableTokens(history, limits(1)), work + Math.floor((merge.tokens - itemTokens([reply])) / 2));
 });

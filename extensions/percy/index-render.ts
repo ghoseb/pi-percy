@@ -85,10 +85,10 @@ export function buildIndex(
   const unlisted = units.units.length - listed.length;
   const protectedLines = units.protectedRows.map((row) => `${row.id}: ${row.reason}`);
   const unitSection = [
+    ...mergeSection(units.merges, limits.mergeAfterCompactions),
     "Safe collapse units (use collapseUnits with a note):",
     ...(unitLines.length > 0 ? unitLines : ["none"]),
     ...(unlisted > 0 ? [`(${unlisted} more under ~${SMALL_TOKENS} tokens each are not listed.)`] : []),
-    ...mergeSection(units.merges, limits.mergeAfterCompactions),
     ...(protectedLines.length > 0 ? ["Protected rows:", ...protectedLines] : []),
   ].join("\n");
   return { text: `${out}${tabulate(table)}\`\`\`\n\n${unitSection}\n`, rows: recentRow };
@@ -98,8 +98,9 @@ export function buildIndex(
 function mergeSection(merges: readonly CompactionUnit[], after: number): string[] {
   if (merges.length === 0) return [];
   const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+  const total = merges.reduce((n, m) => n + m.tokens, 0);
   return [
-    `Merges of old notes (written at least ${after} compactions ago) and the messages between them (use collapseUnits with {id, note, seeAlso}):`,
+    `Merges of old notes (written at least ${after} compactions ago) and the messages between them, ~${total} tokens in all (use collapseUnits with {id, note, seeAlso}):`,
     ...merges.map(
       (m) =>
         `${m.id}: ${m.from}-${m.to}, ${[
@@ -109,13 +110,17 @@ function mergeSection(merges: readonly CompactionUnit[], after: number): string[
         ].join(", ")}, ~${m.tokens} tokens`,
     ),
     MERGE_GUIDANCE,
+    "",
   ];
 }
 
 /** How to write a merged note. */
 export const MERGE_GUIDANCE = [
+  "Nothing else compacts old notes again, so they pile up and each compaction leaves more behind: start with the merges, then the units below.",
+  "A merge saves about its tokens less the note you write.",
   "To merge, write one note that keeps only what is still true: decisions in force, the user's rules and corrections, paths, ids, and commits.",
   "Drop what later work made invalid or replaced.",
+  "A merge may cover units listed below: choose either the merge or those units, not both.",
   `In seeAlso, give up to ${MAX_SEE_ALSO} ids of later notes (s<n>.<i>) or message numbers that replaced part of it or add to it.`,
 ].join(" ");
 

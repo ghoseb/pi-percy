@@ -99,10 +99,10 @@ type CollapseRequest = Collapse & { unit?: string; merge?: boolean; seeAlso?: re
 
 /**
  * The problem with a merge note pointing to id, or undefined if id names a
- * note in context or a message after the merged range ending at message to.
+ * note in context or a message after the merged range ending at message to;
+ * last is the last message number.
  */
-function seeAlsoProblem(items: readonly Item[], to: number, id: string): string | undefined {
-  const last = Math.max(...items.map((it) => it.to));
+function seeAlsoProblem(items: readonly Item[], last: number, to: number, id: string): string | undefined {
   if (/^s\d+\.\d+$/.test(id)) {
     const note = items.find((it) => it.note?.id === id);
     if (!note) return `seeAlso ${id}: no such note in context`;
@@ -134,6 +134,7 @@ export function buildCompaction(
   const items = compactionView(history);
   const { rows, recentRow: recent } = splitRows(items, recentStart(items, limits.keepRecentTokens));
   const alone = aloneRows(rows);
+  const lastMessage = Math.max(0, ...items.map((it) => it.to));
   const c = emptyCompaction();
   const found = [...problems];
 
@@ -228,7 +229,7 @@ export function buildCompaction(
       problem(`seeAlso lists ${seeAlso.length} ids; give at most ${MAX_SEE_ALSO}, the ones that matter most`);
       continue;
     }
-    const seeAlsoProblems = seeAlso.flatMap((id) => seeAlsoProblem(items, last.to, id) ?? []);
+    const seeAlsoProblems = seeAlso.flatMap((id) => seeAlsoProblem(items, lastMessage, last.to, id) ?? []);
     if (seeAlsoProblems.length > 0) {
       for (const p of seeAlsoProblems) problem(p);
       continue;
