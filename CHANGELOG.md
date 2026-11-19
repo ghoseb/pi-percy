@@ -2,6 +2,12 @@
 
 All notable changes to pi-percy. Generated from the git history by [git-cliff](https://git-cliff.org).
 
+## [1.3.0] - 2026-11-19
+
+### Features
+
+- **nudge:** Stop nudging when compacting cannot save enough
+
 ## [1.2.0] - 2026-11-17
 
 ### Features
