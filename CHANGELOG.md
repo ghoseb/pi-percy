@@ -2,6 +2,12 @@
 
 All notable changes to pi-percy. Generated from the git history by [git-cliff](https://git-cliff.org).
 
+## [1.4.1] - 2026-11-20
+
+### Bug fixes
+
+- **compaction:** Tell the model to end an idle turn after compacting
+
 ## [1.4.0] - 2026-11-19
 
 ### Features
