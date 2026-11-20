@@ -19,6 +19,9 @@ import type { PercySettings } from "./settings.ts";
 import { COMPACT_TOOL, type CompactDetails, MAX_SEE_ALSO, RECALL_TOOL } from "./types.ts";
 import { CompactionProblems, compactRequest } from "./validate.ts";
 
+/** What an idle compaction's result tells the model, after its via. */
+export const IDLE_DONE = "This was idle housekeeping, not a reply: end your turn now without writing to the user.";
+
 const COMPACT_DESCRIPTION = [
   "Selectively compact this conversation's older context.",
   "Use it when a context nudge supplies an index or the user asks to compact context.",
@@ -268,8 +271,11 @@ export function registerTools(pi: ExtensionAPI, deps: ToolDeps): void {
       const via =
         compactionTrigger(ctx.sessionManager.getBranch()) ?? (reason ? (`agent: ${reason}` as const) : undefined);
       deps.queueCompaction(toolCallId, compactionDrafts(view, compaction, compacted.edits, compacted));
+      // The compaction hides the idle nudge and its instruction not to
+      // reply, so the result repeats it; only the model sees this text.
+      const after = via === "idle session nudge" ? ` ${IDLE_DONE}` : "";
       return Promise.resolve(
-        result(via ? `${compacted.text} (via: ${via})` : compacted.text, {
+        result(via ? `${compacted.text} (via: ${via})${after}` : compacted.text, {
           kind: "compacted",
           tokensBefore,
           tokensAfter,

@@ -228,6 +228,9 @@ The result of the call tells what asked for the compaction, because the compacti
 If none of these asked, the agent can give a short `reason` (200 characters or less).
 Then the result ends with `(via: agent: <reason>)`.
 If a nudge or the command asked, pi-percy ignores the reason.
+After an idle compaction, the result also tells the model to end its turn without a reply to the user.
+The idle nudge gave this instruction, but the compaction removes the idle nudge.
+The TUI does not show this text.
 
 pi-percy applies a compaction only when the result of the tool call ends the turn.
 The call and its result stay in the context until the next compaction removes them.

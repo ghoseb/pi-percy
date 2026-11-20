@@ -11,6 +11,7 @@ import {
   renderNudge,
   renderRecord,
 } from "../extensions/percy/render.ts";
+import { IDLE_DONE } from "../extensions/percy/tools.ts";
 import { NUDGE_TYPE, type NudgeDetails } from "../extensions/percy/types.ts";
 
 before(() => initTheme("dark"));
@@ -178,6 +179,21 @@ test("a successful compact result shows its counts and sizes", () => {
       ).render(200),
     ),
     `Compacted: 2 ranges collapsed, 1 tool output trimmed; ~${n(12000)} → ~${n(3000)} tokens (via: context nudge)`,
+  );
+  // The idle compaction's instruction to the model is not shown.
+  assert.equal(
+    plain(
+      renderCompactResult(
+        {
+          content: [{ type: "text", text: `${text} (via: idle session nudge) ${IDLE_DONE}` }],
+          details: { ...details, via: "idle session nudge" },
+        },
+        { expanded: true, isPartial: false },
+        t,
+        false,
+      ).render(200),
+    ),
+    `Compacted: 2 ranges collapsed, 1 tool output trimmed; ~${n(12000)} → ~${n(3000)} tokens (via: idle session nudge)`,
   );
   // Recorded before results had details: the text as it is.
   assert.equal(

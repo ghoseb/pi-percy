@@ -5,6 +5,7 @@ import { test } from "node:test";
 import type { Message } from "@earendil-works/pi-ai";
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import { isNudgeEntry, isRecordEntry } from "../extensions/percy/branch.ts";
+import { IDLE_DONE } from "../extensions/percy/tools.ts";
 import { TOGGLE_COMMAND } from "../extensions/percy/types.ts";
 import { anthropicRequestWire, misplacedSystemMessages } from "./anthropic-wire.ts";
 import { dump, type Harness, startHarness } from "./harness.ts";
@@ -61,7 +62,7 @@ test("an idle conversation gets one compaction turn", async () => {
     assert.ok(request.includes("[Tool output compacted"), request);
     const compacted = h.toolResults().filter((r) => r.text.startsWith("Compacted:"));
     assert.deepEqual(
-      compacted.map((r) => r.text.endsWith("(via: idle session nudge)")),
+      compacted.map((r) => r.text.endsWith(`(via: idle session nudge) ${IDLE_DONE}`)),
       [true],
       JSON.stringify(compacted),
     );

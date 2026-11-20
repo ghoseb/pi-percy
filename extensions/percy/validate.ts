@@ -105,7 +105,8 @@ type CollapseRequest = Collapse & { unit?: string; merge?: boolean; seeAlso?: re
 function seeAlsoProblem(items: readonly Item[], last: number, to: number, id: string): string | undefined {
   if (/^s\d+\.\d+$/.test(id)) {
     const note = items.find((it) => it.note?.id === id);
-    if (!note) return `seeAlso ${id}: no such note in context`;
+    if (!note)
+      return `seeAlso ${id}: no such note in context; a later compaction may have merged it into another note. Drop it or use a note id from the index`;
     return note.from > to ? undefined : `seeAlso ${id}: not after the merged messages; give later notes or messages`;
   }
   if (!/^\d+$/.test(id)) return `seeAlso ${id}: not a note id (s<n>.<i>) or a message number`;

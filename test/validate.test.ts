@@ -357,7 +357,10 @@ test("compactRequest checks what a merge points to", () => {
     compactRequest(history, limits(1), { collapseUnits: [{ id: "m1", note: "Parser.", seeAlso }] });
   const cases: [string[], string][] = [
     [["s10.0"], "seeAlso s10.0: not after the merged messages"],
-    [["s99.9"], "seeAlso s99.9: no such note in context"],
+    [
+      ["s99.9"],
+      "seeAlso s99.9: no such note in context; a later compaction may have merged it into another note. Drop it or use a note id from the index",
+    ],
     [["5"], "seeAlso 5: not after the merged messages"],
     [["99"], "seeAlso 99: no such message"],
     [["later"], "seeAlso later: not a note id (s<n>.<i>) or a message number"],
